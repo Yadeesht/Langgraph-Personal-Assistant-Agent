@@ -34,19 +34,22 @@ async def main():
                     "get_unread_emails_tool", arguments={}
                 )
                 print("Unread emails:", unread_result)
-                print(unread_result.dtype)
+
                 import json
 
-                emails = json.loads(unread_result.content[0].text)
-                email_id = emails[0]["id"]  # Adjust this to match your actual output
+                try:
+                    emails = json.loads(unread_result.content[0].text)
+                    for email in emails:
+                        print(email)  # Adjust this to match your actual output
 
-                print("Calling read_email_tool...")
-                result = await session.call_tool(
-                    "read_email_tool", arguments={"email_id": email_id}
-                )
-                print(f"Result received: {result}")
-                print(f"Email content: {result.content[0].text}")
-
+                    print("Calling read_email_tool...")
+                    result = await session.call_tool(
+                        "read_email_tool", arguments={"email_id": emails["id"]}
+                    )
+                    print(f"Result received: {result}")
+                    print(f"Email content: {result.content[0].text}")
+                except (json.JSONDecodeError, KeyError, IndexError) as e:
+                    print(f"Error parsing unread emails: {e}")
         print("Done!")
 
     except Exception as e:

@@ -389,7 +389,12 @@ class GmailService:
         self,
         creds_file_path: str,
         token_path: str,
-        scopes: list[str] = ["https://www.googleapis.com/auth/gmail.modify"],
+        scopes: list[str] = [
+            "https://mail.google.com/",  # <-- Add this scope!
+            "https://www.googleapis.com/auth/gmail.modify",
+            "https://www.googleapis.com/auth/gmail.settings.basic",
+            "https://www.googleapis.com/auth/gmail.settings.sharing",
+        ],
     ):
         logger.info(f"Initializing GmailService with creds file: {creds_file_path}")
         self.creds_file_path = creds_file_path
@@ -505,7 +510,7 @@ class GmailService:
                     .execute()
                 )
                 messages.extend(response["messages"])
-            return messages[0]
+            return messages
 
         except HttpError as error:
             return f"An HttpError occurred: {str(error)}"
@@ -748,31 +753,6 @@ class GmailService:
         except HttpError as error:
             return f"An HttpError occurred: {str(error)}"
 
-    async def list_filters(self) -> list[dict] | str:
-        """Lists all filters in the user's mailbox"""
-        try:
-            results = await asyncio.to_thread(
-                self.service.users().settings().filters().list(userId="me").execute
-            )
-            filters = results.get("filter", [])
-            return filters
-        except HttpError as error:
-            return f"An HttpError occurred: {str(error)}"
-
-    async def get_filter(self, filter_id: str) -> dict | str:
-        """Gets a specific filter by ID"""
-        try:
-            filter_data = await asyncio.to_thread(
-                self.service.users()
-                .settings()
-                .filters()
-                .get(userId="me", id=filter_id)
-                .execute
-            )
-            return filter_data
-        except HttpError as error:
-            return f"An HttpError occurred: {str(error)}"
-
     async def create_filter(
         self,
         from_email: str = None,
@@ -853,6 +833,31 @@ class GmailService:
             }
         except HttpError as error:
             return {"status": "error", "error_message": str(error)}
+
+    async def list_filters(self) -> list[dict] | str:
+        """Lists all filters in the user's mailbox"""
+        try:
+            results = await asyncio.to_thread(
+                self.service.users().settings().filters().list(userId="me").execute
+            )
+            filters = results.get("filter", [])
+            return filters
+        except HttpError as error:
+            return f"An HttpError occurred: {str(error)}"
+
+    async def get_filter(self, filter_id: str) -> dict | str:
+        """Gets a specific filter by ID"""
+        try:
+            filter_data = await asyncio.to_thread(
+                self.service.users()
+                .settings()
+                .filters()
+                .get(userId="me", id=filter_id)
+                .execute
+            )
+            return filter_data
+        except HttpError as error:
+            return f"An HttpError occurred: {str(error)}"
 
     async def delete_filter(self, filter_id: str) -> str:
         """Deletes a filter by ID"""
@@ -1270,10 +1275,10 @@ async def send_email_tool(recipient_id: str, subject: str, message: str):
 
 
 @mcp.tool()
-async def trash_email_tool(email_id: str):
+async def open_email_tool(email_id: str):
     """
-    name="trash-email"
-    description="Moves email to trash. Confirm before moving email to trash."
+    name="open-email"
+    description="Open email in browser"
     schema={
         "type": "object",
         "properties": {
@@ -1286,8 +1291,8 @@ async def trash_email_tool(email_id: str):
         creds_file_path="D:\\Agentic AI\\cred\\client_secret_979296281541-k7n60e6i7kcq1hijr30umufmis1auhgl.apps.googleusercontent.com.json",
         token_path="D:\\Agentic AI\\cred\\token.json",
     )
-    trash_response = await gmail_service.move_to_trash(email_id)
-    return trash_response
+    email_content = await gmail_service.open_email(email_id)
+    return email_content
 
 
 @mcp.tool()
@@ -1296,7 +1301,7 @@ async def get_unread_emails_tool():
     name="get-unread-emails"
     description="Retrieve unread emails"
     schema={"type": "object", "properties": {}, "required": []}
-    """
+    ;"""
     gmail_service = GmailService(
         creds_file_path="D:\\Agentic AI\\cred\\client_secret_979296281541-k7n60e6i7kcq1hijr30umufmis1auhgl.apps.googleusercontent.com.json",
         token_path="D:\\Agentic AI\\cred\\token.json",
@@ -1327,6 +1332,27 @@ async def read_email_tool(email_id: str):
 
 
 @mcp.tool()
+async def trash_email_tool(email_id: str):
+    """
+    name="trash-email"
+    description="Moves email to trash. Confirm before moving email to trash."
+    schema={
+        "type": "object",
+        "properties": {
+            "email_id": {"type": "string", "description": "Email ID"},
+        },
+        "required": ["email_id"],
+    }
+    """
+    gmail_service = GmailService(
+        creds_file_path="D:\\Agentic AI\\cred\\client_secret_979296281541-k7n60e6i7kcq1hijr30umufmis1auhgl.apps.googleusercontent.com.json",
+        token_path="D:\\Agentic AI\\cred\\token.json",
+    )
+    trash_response = await gmail_service.trash_email(email_id)
+    return trash_response
+
+
+@mcp.tool()
 async def mark_email_as_read_tool(email_id: str):
     """
     name="mark-email-as-read"
@@ -1345,27 +1371,6 @@ async def mark_email_as_read_tool(email_id: str):
     )
     mark_response = await gmail_service.mark_email_as_read(email_id)
     return mark_response
-
-
-@mcp.tool()
-async def open_email_tool(email_id: str):
-    """
-    name="open-email"
-    description="Open email in browser"
-    schema={
-        "type": "object",
-        "properties": {
-            "email_id": {"type": "string", "description": "Email ID"},
-        },
-        "required": ["email_id"],
-    }
-    """
-    gmail_service = GmailService(
-        creds_file_path="D:\\Agentic AI\\cred\\client_secret_979296281541-k7n60e6i7kcq1hijr30umufmis1auhgl.apps.googleusercontent.com.json",
-        token_path="D:\\Agentic AI\\cred\\token.json",
-    )
-    email_content = await gmail_service.open_email(email_id)
-    return email_content
 
 
 @mcp.tool()
@@ -1489,49 +1494,6 @@ async def remove_labels_tool(email_id: str, label_id: str):
 
 
 @mcp.tool()
-async def rename_labels_tool(label_id: str, new_name: str):
-    """
-    name="rename-label"
-    description="Renames an existing label"
-    schema={
-        "type": "object",
-        "properties": {
-            "label_id": {"type": "string", "description": "Label ID to rename"},
-            "new_name": {"type": "string", "description": "New name for the label"},
-        },
-        "required": ["label_id", "new_name"],
-    }
-    """
-    gmail_service = GmailService(
-        creds_file_path="D:\\Agentic AI\\cred\\client_secret_979296281541-k7n60e6i7kcq1hijr30umufmis1auhgl.apps.googleusercontent.com.json",
-        token_path="D:\\Agentic AI\\cred\\token.json",
-    )
-    rename_label_response = await gmail_service.rename_label(label_id, new_name)
-    return rename_label_response
-
-
-@mcp.tool()
-async def delete_label_tool(label_id: str):
-    """
-    name="delete-label"
-    description="Permanently deletes a label"
-    schema={
-        "type": "object",
-        "properties": {
-            "label_id": {"type": "string", "description": "Label ID to delete"},
-        },
-        "required": ["label_id"],
-    }
-    """
-    gmail_service = GmailService(
-        creds_file_path="D:\\Agentic AI\\cred\\client_secret_979296281541-k7n60e6i7kcq1hijr30umufmis1auhgl.apps.googleusercontent.com.json",
-        token_path="D:\\Agentic AI\\cred\\token.json",
-    )
-    delete_label_response = await gmail_service.delete_label(label_id)
-    return delete_label_response
-
-
-@mcp.tool()
 async def search_by_label_tool(label_id: str):
     """
     name="search-by-label"
@@ -1550,6 +1512,37 @@ async def search_by_label_tool(label_id: str):
     )
     search_response = await gmail_service.search_by_label(label_id)
     return search_response
+
+
+"""This tool is not working with the Gmail API but there is a way using the google.auth"""
+# @mcp.tool()
+# async def create_filter_tool(**kwargs):
+#     """
+#     name="create-filter"
+#     description="Creates a new email filter"
+#     schema={
+#         "type": "object",
+#         "properties": {
+#             "from_email": {"type": "string", "description": "Filter emails from this sender"},
+#             "to_email": {"type": "string", "description": "Filter emails to this recipient"},
+#             "subject": {"type": "string", "description": "Filter emails with this subject"},
+#             "query": {"type": "string", "description": "Filter emails matching this query"},
+#             "has_attachment": {"type": "boolean", "description": "Filter emails with attachments"},
+#             "exclude_chats": {"type": "boolean", "description": "Exclude chats from filter"},
+#             "size_comparison": {"type": "string", "description": "Size comparison ('larger' or 'smaller')"},
+#             "size": {"type": "integer", "description": "Size in bytes for comparison"},
+#             "add_label_ids": {"type": "array", "items": {"type": "string"}, "description": "Labels to add to matching emails"},
+#             "remove_label_ids": {"type": "array", "items": {"type": "string"}, "description": "Labels to remove from matching emails"},
+#             "forward_to": {"type": "string", "description": "Email address to forward matching emails to"},
+#         },
+#     }
+#     """
+#     gmail_service = GmailService(
+#         creds_file_path="D:\\Agentic AI\\cred\\client_secret_979296281541-k7n60e6i7kcq1hijr30umufmis1auhgl.apps.googleusercontent.com.json",
+#         token_path="D:\\Agentic AI\\cred\\token.json",
+#     )
+#     create_filter_response = await gmail_service.create_filter(**kwargs)
+#     return create_filter_response
 
 
 @mcp.tool()
@@ -1589,36 +1582,6 @@ async def get_filter_tool(filter_id: str):
 
 
 @mcp.tool()
-async def create_filter_tool(**kwargs):
-    """
-    name="create-filter"
-    description="Creates a new email filter"
-    schema={
-        "type": "object",
-        "properties": {
-            "from_email": {"type": "string", "description": "Filter emails from this sender"},
-            "to_email": {"type": "string", "description": "Filter emails to this recipient"},
-            "subject": {"type": "string", "description": "Filter emails with this subject"},
-            "query": {"type": "string", "description": "Filter emails matching this query"},
-            "has_attachment": {"type": "boolean", "description": "Filter emails with attachments"},
-            "exclude_chats": {"type": "boolean", "description": "Exclude chats from filter"},
-            "size_comparison": {"type": "string", "description": "Size comparison ('larger' or 'smaller')"},
-            "size": {"type": "integer", "description": "Size in bytes for comparison"},
-            "add_label_ids": {"type": "array", "items": {"type": "string"}, "description": "Labels to add to matching emails"},
-            "remove_label_ids": {"type": "array", "items": {"type": "string"}, "description": "Labels to remove from matching emails"},
-            "forward_to": {"type": "string", "description": "Email address to forward matching emails to"},
-        },
-    }
-    """
-    gmail_service = GmailService(
-        creds_file_path="D:\\Agentic AI\\cred\\client_secret_979296281541-k7n60e6i7kcq1hijr30umufmis1auhgl.apps.googleusercontent.com.json",
-        token_path="D:\\Agentic AI\\cred\\token.json",
-    )
-    create_filter_response = await gmail_service.create_filter(**kwargs)
-    return create_filter_response
-
-
-@mcp.tool()
 async def delete_filter_tool(filter_id: str):
     """
     name="delete-filter"
@@ -1644,6 +1607,8 @@ async def search_emails_tool(query: str, max_results: int | None = None):
     """
     name="search-emails"
     description="Searches for emails using Gmail's search syntax"
+    Query examples: "from:example@gmail.com subject:"invoice" after:2025/01/01 has:attachment=True snippet: 'Hello accept my offer'"
+    [from, subject, after, before,has:attachment, etc.] this are query sections
     schema={
         "type": "object",
         "properties": {
@@ -1721,6 +1686,49 @@ async def list_folders_tool():
     )
     folders_response = await gmail_service.list_folders()
     return folders_response
+
+
+@mcp.tool()
+async def rename_labels_tool(label_id: str, new_name: str):
+    """
+    name="rename-label"
+    description="Renames an existing label"
+    schema={
+        "type": "object",
+        "properties": {
+            "label_id": {"type": "string", "description": "Label ID to rename"},
+            "new_name": {"type": "string", "description": "New name for the label"},
+        },
+        "required": ["label_id", "new_name"],
+    }
+    """
+    gmail_service = GmailService(
+        creds_file_path="D:\\Agentic AI\\cred\\client_secret_979296281541-k7n60e6i7kcq1hijr30umufmis1auhgl.apps.googleusercontent.com.json",
+        token_path="D:\\Agentic AI\\cred\\token.json",
+    )
+    rename_label_response = await gmail_service.rename_label(label_id, new_name)
+    return rename_label_response
+
+
+@mcp.tool()
+async def delete_label_tool(label_id: str):
+    """
+    name="delete-label"
+    description="Permanently deletes a label"
+    schema={
+        "type": "object",
+        "properties": {
+            "label_id": {"type": "string", "description": "Label ID to delete"},
+        },
+        "required": ["label_id"],
+    }
+    """
+    gmail_service = GmailService(
+        creds_file_path="D:\\Agentic AI\\cred\\client_secret_979296281541-k7n60e6i7kcq1hijr30umufmis1auhgl.apps.googleusercontent.com.json",
+        token_path="D:\\Agentic AI\\cred\\token.json",
+    )
+    delete_label_response = await gmail_service.delete_label(label_id)
+    return delete_label_response
 
 
 @mcp.tool()
