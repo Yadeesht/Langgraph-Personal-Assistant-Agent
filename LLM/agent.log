@@ -1,0 +1,65 @@
+2025-11-05 21:43:27,801 - INFO - ============================================================
+2025-11-05 21:43:27,801 - INFO - STARTING AGENT EXECUTION
+2025-11-05 21:43:27,803 - INFO - ============================================================
+2025-11-05 21:43:33,699 - INFO - Building LLM with 26 tools
+2025-11-05 21:43:33,700 - INFO -   - Tool: send_email_tool
+2025-11-05 21:43:33,700 - INFO -   - Tool: open_email_tool
+2025-11-05 21:43:33,701 - INFO -   - Tool: get_unread_emails_tool
+2025-11-05 21:43:33,701 - INFO -   - Tool: read_email_tool
+2025-11-05 21:43:33,701 - INFO -   - Tool: trash_email_tool
+2025-11-05 21:43:33,701 - INFO -   - Tool: mark_email_as_read_tool
+2025-11-05 21:43:33,701 - INFO -   - Tool: create_draft_tool
+2025-11-05 21:43:33,702 - INFO -   - Tool: list_drafts_tool
+2025-11-05 21:43:33,702 - INFO -   - Tool: list_labels_tool
+2025-11-05 21:43:33,703 - INFO -   - Tool: create_label_tool
+2025-11-05 21:43:33,703 - INFO -   - Tool: apply_label_tool
+2025-11-05 21:43:33,703 - INFO -   - Tool: remove_labels_tool
+2025-11-05 21:43:33,703 - INFO -   - Tool: search_by_label_tool
+2025-11-05 21:43:33,704 - INFO -   - Tool: list_filters_tool
+2025-11-05 21:43:33,704 - INFO -   - Tool: get_filter_tool
+2025-11-05 21:43:33,704 - INFO -   - Tool: delete_filter_tool
+2025-11-05 21:43:33,704 - INFO -   - Tool: search_emails_tool
+2025-11-05 21:43:33,705 - INFO -   - Tool: create_folder_tool
+2025-11-05 21:43:33,705 - INFO -   - Tool: move_to_folder_tool
+2025-11-05 21:43:33,705 - INFO -   - Tool: list_folders_tool
+2025-11-05 21:43:33,705 - INFO -   - Tool: rename_labels_tool
+2025-11-05 21:43:33,706 - INFO -   - Tool: delete_label_tool
+2025-11-05 21:43:33,706 - INFO -   - Tool: archive_email_tool
+2025-11-05 21:43:33,706 - INFO -   - Tool: batch_archive_tool
+2025-11-05 21:43:33,706 - INFO -   - Tool: list_archived_tool
+2025-11-05 21:43:33,707 - INFO -   - Tool: restore_to_inbox_tool
+2025-11-05 21:43:35,205 - INFO - Graph compiled successfully
+2025-11-05 21:43:37,249 - INFO - Graph saved to state_graph.png
+2025-11-05 21:43:37,250 - INFO - User Query: What are the recent mails i have recived?
+2025-11-05 21:43:37,260 - INFO - ============================================================
+2025-11-05 21:43:37,261 - INFO - AGENT NODE - Processing messages
+2025-11-05 21:43:37,261 - INFO - Current message count: 1
+2025-11-05 21:43:37,262 - INFO - User query: What are the recent mails i have recived?
+2025-11-05 21:43:37,262 - INFO - Calling LLM...
+2025-11-05 21:43:41,751 - INFO - HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2025-11-05 21:43:41,768 - INFO - LLM provided final response (no tool calls)
+2025-11-05 21:43:41,769 - INFO - Response preview: ...
+2025-11-05 21:43:41,774 - INFO - ============================================================
+2025-11-05 21:43:41,776 - INFO - FINAL RESULT
+2025-11-05 21:43:41,776 - INFO - Total execution time: 4.52s
+2025-11-05 21:43:41,777 - INFO - Total messages in conversation: 2
+2025-11-05 21:43:41,777 - INFO - ============================================================
+2025-11-05 21:51:30,165 - INFO - ============================================================
+2025-11-05 21:51:30,165 - INFO - STARTING AGENT EXECUTION
+2025-11-05 21:51:30,166 - INFO - ============================================================
+2025-11-05 21:51:35,512 - INFO - Graph compiled successfully
+2025-11-05 21:51:36,796 - INFO - Graph saved to state_graph.png
+2025-11-05 21:51:36,797 - INFO - User Query: What are the recent mails i have recived?
+2025-11-05 21:51:36,804 - INFO - ============================================================
+2025-11-05 21:51:36,805 - INFO - AGENT NODE - Processing messages
+2025-11-05 21:51:36,805 - INFO - Current message count: 1
+2025-11-05 21:51:36,806 - INFO - User query: What are the recent mails i have recived?
+2025-11-05 21:51:36,806 - INFO - Calling LLM...
+2025-11-05 21:51:40,603 - INFO - HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2025-11-05 21:51:40,672 - INFO - LLM provided final response (no tool calls)
+2025-11-05 21:51:40,674 - INFO - Response preview: get_unread_emails_tool()...
+2025-11-05 21:51:40,679 - INFO - ============================================================
+2025-11-05 21:51:40,680 - INFO - FINAL RESULT
+2025-11-05 21:51:40,681 - INFO - Total execution time: 3.88s
+2025-11-05 21:51:40,682 - INFO - Total messages in conversation: 2
+2025-11-05 21:51:40,682 - INFO - ============================================================

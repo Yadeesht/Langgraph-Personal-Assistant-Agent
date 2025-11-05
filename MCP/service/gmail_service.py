@@ -3,6 +3,7 @@ import os
 import asyncio
 import logging
 import base64
+from datetime import datetime, timedelta
 
 from email.message import EmailMessage
 from email.header import decode_header
@@ -139,30 +140,182 @@ class GmailService:
         except HttpError as error:
             return f"An HttpError occurred: {str(error)}"
 
-    async def get_unread_emails(self) -> list[dict[str, str]] | str:
+    async def get_detailed_email_info(
+        self, email_id: str, format: str = "full"
+    ) -> dict:
         """
-        Retrieves unread messages from mailbox.
-        Returns list of messsage IDs in key 'id'."""
+        Retrieve all possible information from an email message.
+
+        Available formats:
+        - 'minimal': Returns only email message ID and labels
+        - 'full': Returns the full email message data (default)
+        - 'raw': Returns the raw MIME message
+        - 'metadata': Returns only email message metadata
+        """
+
+        # 1. Get FULL message details
+        full_message = (
+            self.service.users()
+            .messages()
+            .get(
+                userId="me",
+                id=email_id,
+                format="full",  # or 'minimal', 'raw', 'metadata'
+            )
+            .execute()
+        )
+
+        # Available top-level fields:
+        message_info = {
+            "id": full_message["id"],  # Message ID
+            "threadId": full_message["threadId"],  # Thread ID
+            "labelIds": full_message.get(
+                "labelIds", []
+            ),  # Labels (INBOX, UNREAD, etc.)
+            "snippet": full_message.get("snippet", ""),  # Preview text
+            "historyId": full_message.get("historyId"),  # History ID for sync
+            "internalDate": full_message.get("internalDate"),  # Unix timestamp (ms)
+            "sizeEstimate": full_message.get("sizeEstimate"),  # Estimated size in bytes
+        }
+
+        # 2. Extract headers from payload
+        headers = full_message.get("payload", {}).get("headers", [])
+
+        # Common headers you can extract:
+        header_fields = {
+            "Subject": None,
+            "From": None,
+            "To": None,
+            "Cc": None,
+            "Bcc": None,
+            "Date": None,
+            "Message-ID": None,
+            "In-Reply-To": None,
+            "References": None,
+            "Reply-To": None,
+            "Return-Path": None,
+            "Delivered-To": None,
+            "Content-Type": None,
+            "MIME-Version": None,
+            "X-Gmail-Labels": None,
+            "List-Unsubscribe": None,  # For mailing lists
+            "Precedence": None,
+            "X-Priority": None,
+            "Importance": None,
+        }
+
+        for header in headers:
+            header_name = header["name"]
+            if header_name in header_fields:
+                header_fields[header_name] = header["value"]
+
+        # 3. Extract body parts
+        payload = full_message.get("payload", {})
+
+        body_info = {
+            "mimeType": payload.get(
+                "mimeType"
+            ),  # text/plain, text/html, multipart/alternative
+            "filename": payload.get("filename"),
+            "parts": [],  # For multipart messages
+        }
+
+        # 4. Get attachments info
+        attachments = []
+
+        def extract_parts(parts):
+            for part in parts:
+                if part.get("filename"):
+                    attachments.append(
+                        {
+                            "filename": part["filename"],
+                            "mimeType": part["mimeType"],
+                            "size": part["body"].get("size", 0),
+                            "attachmentId": part["body"].get("attachmentId"),
+                        }
+                    )
+
+                # Recursive for nested parts
+                if "parts" in part:
+                    extract_parts(part["parts"])
+
+        if "parts" in payload:
+            extract_parts(payload["parts"])
+
+        return {
+            "message_info": message_info,
+            "headers": header_fields,
+            "body_info": body_info,
+            "attachments": attachments,
+        }
+
+    # Modify the EXISTING get_unread_emails method in GmailService class
+
+    async def get_unread_emails(
+        self, date=10, max_results=50
+    ) -> list[dict[str, str]] | str:
+        """
+        Retrieves detailed unread messages from mailbox.
+        Returns list of messages with subject, from, date, snippet, etc.
+        """
         try:
             user_id = "me"
-            query = "in:inbox is:unread category:primary"
+            after_date = (datetime.now() - timedelta(days=date)).strftime("%Y/%m/%d")
+            query = f"in:inbox is:unread category:primary after:{after_date}"
 
             response = (
-                self.service.users().messages().list(userId=user_id, q=query).execute()
+                self.service.users()
+                .messages()
+                .list(userId=user_id, q=query, maxResults=max_results)
+                .execute()
             )
+
             messages = []
             if "messages" in response:
-                messages.extend(response["messages"])
+                # Get detailed info for each message
+                for msg in response["messages"]:
+                    email_id = msg["id"]
 
-            while "nextPageToken" in response:
-                page_token = response["nextPageToken"]
-                response = (
-                    self.service.users()
-                    .messages()
-                    .list(userId=user_id, q=query, pageToken=page_token)
-                    .execute()
-                )
-                messages.extend(response["messages"])
+                    # Fetch full metadata
+                    full_msg = (
+                        self.service.users()
+                        .messages()
+                        .get(
+                            userId=user_id,
+                            id=email_id,
+                            format="metadata",
+                            metadataHeaders=["Subject", "From", "Date", "To"],
+                        )
+                        .execute()
+                    )
+
+                    headers = full_msg.get("payload", {}).get("headers", [])
+
+                    email_details = {
+                        "id": email_id,
+                        "threadId": msg["threadId"],
+                        "snippet": full_msg.get("snippet", ""),
+                        "labels": full_msg.get("labelIds", []),
+                        "size": full_msg.get("sizeEstimate", 0),
+                        "internalDate": full_msg.get("internalDate"),
+                        "subject": next(
+                            (h["value"] for h in headers if h["name"] == "Subject"),
+                            "No Subject",
+                        ),
+                        "from": next(
+                            (h["value"] for h in headers if h["name"] == "From"),
+                            "Unknown",
+                        ),
+                        "date": next(
+                            (h["value"] for h in headers if h["name"] == "Date"), ""
+                        ),
+                        "to": next(
+                            (h["value"] for h in headers if h["name"] == "To"), ""
+                        ),
+                    }
+
+                    messages.append(email_details)
+
             return messages
 
         except HttpError as error:
