@@ -419,6 +419,10 @@ async def get_unread_emails_tool(date=10):
         "required": []
     }
     """
+    # Convert string to int if needed (some LLMs pass strings)
+    if isinstance(date, str):
+        date = int(date)
+
     gmail_service = GmailService(
         creds_file_path="D:\\Agentic AI\\MCP\\cred\\client_secret_979296281541-k7n60e6i7kcq1hijr30umufmis1auhgl.apps.googleusercontent.com.json",
         token_path="D:\\Agentic AI\\MCP\\cred\\token.json",
@@ -806,6 +810,9 @@ async def search_emails_tool(query: str, max_results: int | None = None):
         "required": ["query"]
     }
     """
+    # Convert string to int if needed (some LLMs pass strings)
+    if max_results is not None and isinstance(max_results, str):
+        max_results = int(max_results)
 
     gmail_service = GmailService(
         creds_file_path="D:\\Agentic AI\\MCP\\cred\\client_secret_979296281541-k7n60e6i7kcq1hijr30umufmis1auhgl.apps.googleusercontent.com.json",
@@ -992,6 +999,9 @@ async def batch_archive_tool(query: str, max_emails: int = 100):
         "required": ["query"]
     }
     """
+    # Convert string to int if needed (some LLMs pass strings)
+    if isinstance(max_emails, str):
+        max_emails = int(max_emails)
 
     gmail_service = GmailService(
         creds_file_path="D:\\Agentic AI\\MCP\\cred\\client_secret_979296281541-k7n60e6i7kcq1hijr30umufmis1auhgl.apps.googleusercontent.com.json",
@@ -1019,6 +1029,9 @@ async def list_archived_tool(max_results: int = 100):
         "required": []
     }
     """
+    # Convert string to int if needed (some LLMs pass strings)
+    if isinstance(max_results, str):
+        max_results = int(max_results)
 
     gmail_service = GmailService(
         creds_file_path="D:\\Agentic AI\\MCP\\cred\\client_secret_979296281541-k7n60e6i7kcq1hijr30umufmis1auhgl.apps.googleusercontent.com.json",

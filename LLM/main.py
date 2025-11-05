@@ -49,12 +49,12 @@ builder = StateGraph(State)
 
 
 def build_llm_with_tools(tools):
-    llm = init_chat_model("google_genai:gemini-2.0-flash")
-    # llm = ChatOpenAI(
-    #     model="meta-llama/llama-3.3-8b-instruct:free",
-    #     openai_api_key=api_key,
-    #     openai_api_base=base_url,
-    # )
+    # llm = init_chat_model("google_genai:gemini-2.0-flash")
+    llm = ChatOpenAI(
+        model="openai/gpt-oss-safeguard-20b",
+        openai_api_key=api_key,
+        openai_api_base=base_url,
+    )
     logger.info("LLM binding successful")
     return llm.bind_tools(tools)
 
@@ -135,7 +135,7 @@ async def main():
             "messages": [
                 {
                     "role": "user",
-                    "content": "hey as i have send bhuwan a message that i will be meeting him tomorrow check if he have replied back if so send him that i will meet him morining 10 am ",
+                    "content": "Use the get_unread_emails_tool to retrieve my recent emails. What are the recent mails I have received last 7 days?",
                 },
             ]
         },
