@@ -10,11 +10,14 @@ from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
 from langgraph.checkpoint.memory import MemorySaver
 from langchain_mcp_adapters.client import MultiServerMCPClient
+from langgraph.checkpoint.sqlite import SqliteSaver
 from langchain.chat_models import init_chat_model
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langgraph.types import interrupt, Command
 import asyncio
 import logging
 import json
+import sqlite3
 from datetime import datetime
 
 load_dotenv()
@@ -44,8 +47,10 @@ class State(TypedDict):
 
 api_key = os.getenv("OPENROUTER_API_KEY")
 base_url = "https://openrouter.ai/api/v1"
+# conn = sqlite3.connect("gmail_agent_memory.db", check_same_thread=False)
+# memory = SqliteSaver(conn)
+
 memory = MemorySaver()
-builder = StateGraph(State)
 
 
 def build_llm_with_tools(tools):
@@ -115,6 +120,32 @@ def agent_node_factory(llm_with_tools):
     return agent_node
 
 
+# def view_memory_history(memory, thread_id):
+#     """View conversation history from memory"""
+#     logger.info("🔍 Checking memory history...")
+#     config = {"configurable": {"thread_id": thread_id}}
+
+#     try:
+#         # Get all checkpoints for this thread
+#         checkpoints = list(memory.list(config))
+
+#         if checkpoints:
+#             logger.info(f"📚 Found {len(checkpoints)} checkpoints")
+
+#             # Get the latest checkpoint
+#             latest = checkpoints[0] if checkpoints else None
+#             if latest and "channel_values" in latest:
+#                 messages = latest["channel_values"].get("messages", [])
+#                 logger.info(f"💬 Total messages in memory: {len(messages)}")
+
+#                 for i, msg in enumerate(messages, 1):
+#                     logger.info(f"   {i}. {msg.__class__.__name__}")
+#         else:
+#             logger.info("📭 No conversation history found")
+#     except Exception as e:
+#         logger.warning(f"⚠️  Could not read memory: {e}")
+
+
 def clear_memory():
     return MemorySaver()
 
@@ -138,27 +169,47 @@ async def main():
     logger.info("🚀 Starting Gmail Agent")
     logger.info("=" * 80)
 
+    # thread_id = "gmail_thread_001"
+
+    # # ✅ Check if there's existing memory
+    # view_memory_history(memory, thread_id)
+    # logger.info("=" * 80)
+
     tools = await client.get_tools()
     logger.info(f"✅ Tools loaded: {len(tools)} tools")
 
-    graph = build_graph(tools, memory)  # before this clear memory function will work
+    graph = build_graph(tools, memory)
     config = {"configurable": {"thread_id": "gmail_thread_001"}}
 
-    user_query = "What are the recent emails I have received in the last 7 days?"
-    logger.info(f"👤 User Query: {user_query}")
-    logger.info("=" * 80)
+    while True:
+        user_query = input("You: ").strip()
 
-    state = await graph.ainvoke(
-        {
-            "messages": [
-                {
-                    "role": "user",
-                    "content": user_query,
-                }
-            ]
-        },
-        config=config,
-    )
+        if user_query.lower() in ["exit", "quit", "bye"]:
+            logger.info("👋 User ended conversation")
+            break
+
+        if not user_query:
+            continue
+
+        logger.info(f"👤 User Query: {user_query}")
+        logger.info("=" * 80)
+
+        state = await graph.ainvoke(
+            {
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": user_query,
+                    }
+                ]
+            },
+            config=config,
+        )
+        if "__interrupt__" in state:
+            prompt = state["__interrupt__"]
+            print(f"🟡 Agent: {prompt}")
+            user_response = input("🧍 Your answer: ")
+            state = graph.invoke(Command(resume=user_response), config=config)
 
     logger.info("=" * 80)
     logger.info("🎯 EXECUTION SUMMARY")

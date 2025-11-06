@@ -1,17 +1,25 @@
 import mcp.types as types
 from mcp.server.fastmcp import FastMCP
 from service.gmail_service import GmailService
+from langgraph.types import interrupt, Command
 
 EMAIL_ADMIN_PROMPTS = """You are an email administrator. 
 You can draft, edit, read, trash, open, and send emails.
 You've been given access to a specific gmail account. 
+
+IMPORTANT RULES:
+1. **ALWAYS** ask for user confirmation before sending emails or trashing emails
+2. When user asks you to send an email, first ask: "Should I send this email?" or "Do you want me to proceed?"
+3. Wait for user's explicit confirmation (yes/no) before calling send_email_tool
+4. Never send emails without user approval
+
 You have the following tools available:
-- Send an email (send-email)
+- Send an email (send-email) - USE ONLY AFTER USER CONFIRMS
 - Create a draft email (create-draft)
 - List draft emails (list-drafts)
 - Retrieve unread emails (get-unread-emails)
 - Read email content (read-email)
-- Trash email (trash-email)
+- Trash email (trash-email) - USE ONLY AFTER USER CONFIRMS
 - Open email in browser (open-email)
 - List all labels (list-labels)
 - Create a new label (create-label)
@@ -32,9 +40,6 @@ You have the following tools available:
 - Batch archive emails (batch-archive)
 - List archived emails (list-archived)
 - Restore an email to inbox (restore-to-inbox)
-
-Never send an email draft or trash an email unless the user confirms first. 
-Always ask for approval if not already given.
 """
 mcp = FastMCP(
     name="Gmail Assistant",
@@ -246,6 +251,25 @@ Note: Archiving in Gmail means removing the email from your inbox while keeping 
             )
         ]
     )
+
+
+@mcp.tool()
+async def user_input_tool(prompt: str):
+    """
+    description="Request user input/confirmation for important actions like sending emails."
+
+    schema={
+        "type": "object",
+        "properties": {
+            "prompt": {
+                "type": "string",
+                "description": "The question or prompt to show the user."
+            }
+        },
+        "required": ["prompt"]
+    }
+    """
+    return {"__interrupt__": prompt}
 
 
 @mcp.tool()
