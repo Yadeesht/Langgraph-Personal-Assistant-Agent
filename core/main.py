@@ -12,8 +12,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langchain.chat_models import init_chat_model
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langgraph.types import interrupt, Command
+from langgraph.types import Command
 import asyncio
 import logging
 import json
@@ -40,6 +39,12 @@ client = MultiServerMCPClient(
     }
 )
 
+SYSTEM_PROMPT = """
+You are a Gmail assistant with access to various email management tools.
+Always ask for user confirmation before sending or deleting emails.
+Use the provided tools appropriately based on user intent.
+"""
+
 
 class State(TypedDict):
     messages: Annotated[list, add_messages]
@@ -47,8 +52,6 @@ class State(TypedDict):
 
 api_key = os.getenv("OPENROUTER_API_KEY")
 base_url = "https://openrouter.ai/api/v1"
-# conn = sqlite3.connect("gmail_agent_memory.db", check_same_thread=False)
-# memory = SqliteSaver(conn)
 
 memory = MemorySaver()
 
@@ -84,7 +87,8 @@ def agent_node_factory(llm_with_tools):
             )
             logger.info(f"📝 Content preview: {content_preview}")
 
-        msg = llm_with_tools.invoke(state["messages"])
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}] + state["messages"]
+        msg = llm_with_tools.invoke(messages)
         logger.info(f"✅ LLM RESPONSE RECEIVED: {msg}")
         logger.info(f"📊 Response type: {msg.__class__.__name__}")
 
@@ -120,36 +124,6 @@ def agent_node_factory(llm_with_tools):
     return agent_node
 
 
-# def view_memory_history(memory, thread_id):
-#     """View conversation history from memory"""
-#     logger.info("🔍 Checking memory history...")
-#     config = {"configurable": {"thread_id": thread_id}}
-
-#     try:
-#         # Get all checkpoints for this thread
-#         checkpoints = list(memory.list(config))
-
-#         if checkpoints:
-#             logger.info(f"📚 Found {len(checkpoints)} checkpoints")
-
-#             # Get the latest checkpoint
-#             latest = checkpoints[0] if checkpoints else None
-#             if latest and "channel_values" in latest:
-#                 messages = latest["channel_values"].get("messages", [])
-#                 logger.info(f"💬 Total messages in memory: {len(messages)}")
-
-#                 for i, msg in enumerate(messages, 1):
-#                     logger.info(f"   {i}. {msg.__class__.__name__}")
-#         else:
-#             logger.info("📭 No conversation history found")
-#     except Exception as e:
-#         logger.warning(f"⚠️  Could not read memory: {e}")
-
-
-def clear_memory():
-    return MemorySaver()
-
-
 def build_graph(tools, memory):
     llm_with_tools = build_llm_with_tools(tools)
     agent_node = agent_node_factory(llm_with_tools)
@@ -168,12 +142,6 @@ async def main():
     start_time = datetime.now()
     logger.info("🚀 Starting Gmail Agent")
     logger.info("=" * 80)
-
-    # thread_id = "gmail_thread_001"
-
-    # # ✅ Check if there's existing memory
-    # view_memory_history(memory, thread_id)
-    # logger.info("=" * 80)
 
     tools = await client.get_tools()
     logger.info(f"✅ Tools loaded: {len(tools)} tools")

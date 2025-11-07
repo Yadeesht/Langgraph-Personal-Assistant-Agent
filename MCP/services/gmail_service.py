@@ -18,7 +18,6 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-# Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -30,10 +29,8 @@ def decode_mime_header(header: str) -> str:
     decoded_string = ""
     for part, encoding in decoded_parts:
         if isinstance(part, bytes):
-            # Decode bytes to string using the specified encoding
             decoded_string += part.decode(encoding or "utf-8")
         else:
-            # Already a string
             decoded_string += part
     return decoded_string
 
@@ -44,7 +41,7 @@ class GmailService:
         creds_file_path: str,
         token_path: str,
         scopes: list[str] = [
-            "https://mail.google.com/",  # <-- Add this scope!
+            "https://mail.google.com/",
             "https://www.googleapis.com/auth/gmail.modify",
             "https://www.googleapis.com/auth/gmail.settings.basic",
             "https://www.googleapis.com/auth/gmail.settings.sharing",
