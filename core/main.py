@@ -1,28 +1,31 @@
-from dotenv import load_dotenv
+# from langchain.chat_models import init_chat_model
+import asyncio
+import json
+import logging
 import os
-from langgraph.graph import StateGraph, START, END
-from langchain_openai import ChatOpenAI
+from datetime import datetime
+from pathlib import Path
 from typing import Annotated
-from typing_extensions import TypedDict
+
+import aiosqlite
+import psycopg
+import tiktoken
+from dotenv import load_dotenv
+from langchain_core.messages import (
+    AIMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+    trim_messages,
+)
+from langchain_mcp_adapters.client import MultiServerMCPClient
+from langchain_openai import ChatOpenAI
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
-from langgraph.checkpoint.memory import MemorySaver
-from langchain_mcp_adapters.client import MultiServerMCPClient
-from langgraph.store.postgres import PostgresStore
-from langgraph.checkpoint.postgres import PostgresSaver
-import psycopg
-from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
-import aiosqlite
-from pathlib import Path
-from langchain_core.messages import trim_messages
-from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, SystemMessage
-
-# from langchain.chat_models import init_chat_model
 from langgraph.types import Command
-import asyncio
-import logging
-import json
-from datetime import datetime
+from typing_extensions import TypedDict
 
 load_dotenv()
 
@@ -76,21 +79,51 @@ def strip_message_metadata(message):
             content=message.content,
             tool_calls=message.tool_calls if hasattr(message, "tool_calls") else [],
         )
+
     elif isinstance(message, HumanMessage):
         return HumanMessage(content=message.content)
+
     elif isinstance(message, ToolMessage):
         return ToolMessage(
             content=message.content,
             tool_call_id=message.tool_call_id,
             name=message.name if hasattr(message, "name") else None,
         )
+
     else:
         return message
 
 
 def clean_messages(messages):
-    """Clean all messages in the list"""
     return [strip_message_metadata(msg) for msg in messages]
+
+
+class CleaningAsyncSqliteSaver(AsyncSqliteSaver):
+    async def aput(self, config, checkpoint, metadata, new_versions):
+        if (
+            "channel_values" in checkpoint
+            and "messages" in checkpoint["channel_values"]
+        ):
+            checkpoint["channel_values"]["messages"] = clean_messages(
+                checkpoint["channel_values"]["messages"]
+            )
+        return await super().aput(config, checkpoint, metadata, new_versions)
+
+
+def count_tokens(messages):
+    try:
+        encoding = tiktoken.encoding_for_model("gpt-4")
+    except KeyError:
+        encoding = tiktoken.get_encoding("cl100k_base")
+
+    num_tokens = 0
+    for message in messages:
+        # Every message follows <im_start>{role/name}\n{content}<im_end>\n
+        num_tokens += 4
+        if hasattr(message, "content"):
+            num_tokens += len(encoding.encode(str(message.content)))
+    num_tokens += 2  # Every reply is primed with <im_start>assistant
+    return num_tokens
 
 
 def agent_node_factory(llm_with_tools):
@@ -108,18 +141,16 @@ def agent_node_factory(llm_with_tools):
             state["messages"],
             max_tokens=2000,
             strategy="last",
-            token_counter=llm_with_tools,
+            token_counter=count_tokens,
             include_system=True,
             start_on="human",
         )
         logger.info("=" * 80)
-        logger.info(f"💬 Last message type: {last_messages}")
-        if hasattr(last_messages, "content"):
-            logger.info(f"💬 Last message type: {last_messages.__class__.__name__}")
+        if last_messages:
             content_preview = (
-                str(last_messages.content)[:200] + "..."
-                if len(str(last_messages.content)) > 200
-                else str(last_messages.content)
+                last_messages[:200] + "..."
+                if len(str(last_messages)) > 200
+                else str(last_messages)
             )
             logger.info(f"📝 Content preview: {content_preview}")
 
@@ -188,9 +219,9 @@ async def main():
     logger.info(f"✅ Tools loaded: {len(tools)} tools")
 
     async with aiosqlite.connect(str(DB_PATH)) as conn:
-        checkpointer = AsyncSqliteSaver(conn)
+        checkpointer = CleaningAsyncSqliteSaver(conn)
         graph = build_graph(tools, checkpointer)
-        config = {"configurable": {"thread_id": "gmail_thread_001"}}
+        config = {"configurable": {"thread_id": "gmail_thread_002"}}
 
         while True:
             user_query = input("You: ").strip()

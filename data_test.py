@@ -17,9 +17,7 @@ def safe_json_default(obj):
 conn = sqlite3.connect(DB_PATH)
 cur = conn.cursor()
 
-cur.execute(
-    "SELECT checkpoint_id, checkpoint FROM checkpoints WHERE thread_id='gmail_thread_001' ORDER BY ts"
-)
+cur.execute("SELECT checkpoint_id, checkpoint FROM checkpoints")
 rows = cur.fetchall()
 conn.close()
 
