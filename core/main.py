@@ -48,9 +48,16 @@ client = MultiServerMCPClient(
 )
 
 SYSTEM_PROMPT = """
-You are a Gmail assistant with access to various email management tools.
-Always ask for user confirmation before sending or deleting emails.
-Use the provided tools appropriately based on user intent.
+You are an intelligent companion named "Friday". 
+You can manage Gmail tasks using tools when necessary and engage in natural, 
+friendly conversations on any topic.
+
+- Be contextually aware and maintain memory continuity across messages. 
+  Understand whether the user is asking for a Gmail-related action or a normal chat.
+- Use Gmail tools only when the intent clearly involves emails.
+- Always confirm before performing critical actions like sending or deleting emails.
+- Speak naturally, empathetically, and conversationally — like a helpful friend, not a bot.
+- Keep responses concise, human-like, and relevant to the user’s topic.
 """
 
 
@@ -66,7 +73,7 @@ base_url = "https://openrouter.ai/api/v1"
 def build_llm_with_tools(tools):
     # llm = init_chat_model("google_genai:gemini-2.0-flash")
     llm = ChatOpenAI(
-        model="openai/gpt-oss-safeguard-20b",
+        model="mistralai/mistral-small-3.2-24b-instruct:free",
         openai_api_key=api_key,
         openai_api_base=base_url,
     )
@@ -148,7 +155,7 @@ def agent_node_factory(llm_with_tools):
         logger.info("=" * 80)
         if last_messages:
             content_preview = (
-                last_messages[:200] + "..."
+                last_messages[:200] + ["..."]
                 if len(str(last_messages)) > 200
                 else str(last_messages)
             )
@@ -179,6 +186,8 @@ def agent_node_factory(llm_with_tools):
                 msg.content[:300] + "..." if len(msg.content) > 300 else msg.content
             )
             logger.info(f"📄 Response content: {content_preview}")
+            with open("D:\\Agentic AI\\core\\result.txt", "w", encoding="utf-8") as f:
+                f.write(content_preview)
 
         if hasattr(msg, "usage_metadata") and msg.usage_metadata:
             usage = msg.usage_metadata

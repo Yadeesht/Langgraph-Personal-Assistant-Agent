@@ -1,16 +1,14 @@
-from typing import Any
-import os
 import asyncio
-import logging
 import base64
-from datetime import datetime, timedelta
-
-from email.message import EmailMessage
-from email.header import decode_header
-from base64 import urlsafe_b64decode
-from email import message_from_bytes
+import logging
+import os
 import webbrowser
-
+from base64 import urlsafe_b64decode
+from datetime import datetime, timedelta
+from email import message_from_bytes
+from email.header import decode_header
+from email.message import EmailMessage
+from typing import Any
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials

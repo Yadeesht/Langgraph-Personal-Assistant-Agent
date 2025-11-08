@@ -1,5 +1,6 @@
-from mcp.server.fastmcp import FastMCP
 from pathlib import Path
+
+from mcp.server.fastmcp import FastMCP
 from services.gmail_service import GmailService
 
 mcp = FastMCP(
