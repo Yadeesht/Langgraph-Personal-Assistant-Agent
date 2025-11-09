@@ -10,6 +10,10 @@ mcp = FastMCP(
     stateless_http=True,
 )
 
+BASE_DIR = Path(__file__).parent.parent
+GMAIL_CRED_PATH = BASE_DIR / "cred" / "client_secret_gmail.json"
+GMAIL_TOKEN_PATH = BASE_DIR / "cred" / "gmail_token.json"
+
 
 @mcp.tool()
 async def user_input_tool(prompt: str):
@@ -56,8 +60,8 @@ async def send_email_tool(recipient_id: str, subject: str, message: str):
     """
 
     gmail_service = GmailService(
-        creds_file_path="D:\\Agentic AI\\MCP\\cred\\client_secret_979296281541-k7n60e6i7kcq1hijr30umufmis1auhgl.apps.googleusercontent.com.json",
-        token_path="D:\\Agentic AI\\MCP\\cred\\token.json",
+        creds_file_path=GMAIL_CRED_PATH,
+        token_path=GMAIL_TOKEN_PATH,
     )
     send_response = await gmail_service.send_email(recipient_id, subject, message)
     return send_response
@@ -81,8 +85,8 @@ async def open_email_tool(email_id: str):
     """
 
     gmail_service = GmailService(
-        creds_file_path="D:\\Agentic AI\\MCP\\cred\\client_secret_979296281541-k7n60e6i7kcq1hijr30umufmis1auhgl.apps.googleusercontent.com.json",
-        token_path="D:\\Agentic AI\\MCP\\cred\\token.json",
+        creds_file_path=GMAIL_CRED_PATH,
+        token_path=GMAIL_TOKEN_PATH,
     )
     email_content = await gmail_service.open_email(email_id)
     return email_content
@@ -109,8 +113,8 @@ async def get_unread_emails_tool(date=10):
         date = int(date)
 
     gmail_service = GmailService(
-        creds_file_path="D:\\Agentic AI\\MCP\\cred\\client_secret_979296281541-k7n60e6i7kcq1hijr30umufmis1auhgl.apps.googleusercontent.com.json",
-        token_path="D:\\Agentic AI\\MCP\\cred\\token.json",
+        creds_file_path=GMAIL_CRED_PATH,
+        token_path=GMAIL_TOKEN_PATH,
     )
     unread_emails = await gmail_service.get_unread_emails(date=date)
     return unread_emails
@@ -134,8 +138,8 @@ async def read_email_tool(email_id: str):
     """
 
     gmail_service = GmailService(
-        creds_file_path="D:\\Agentic AI\\MCP\\cred\\client_secret_979296281541-k7n60e6i7kcq1hijr30umufmis1auhgl.apps.googleusercontent.com.json",
-        token_path="D:\\Agentic AI\\MCP\\cred\\token.json",
+        creds_file_path=GMAIL_CRED_PATH,
+        token_path=GMAIL_TOKEN_PATH,
     )
     email_content = await gmail_service.read_email(email_id)
     return email_content
@@ -159,8 +163,8 @@ async def trash_email_tool(email_id: str):
     """
 
     gmail_service = GmailService(
-        creds_file_path="D:\\Agentic AI\\MCP\\cred\\client_secret_979296281541-k7n60e6i7kcq1hijr30umufmis1auhgl.apps.googleusercontent.com.json",
-        token_path="D:\\Agentic AI\\MCP\\cred\\token.json",
+        creds_file_path=GMAIL_CRED_PATH,
+        token_path=GMAIL_TOKEN_PATH,
     )
     trash_response = await gmail_service.trash_email(email_id)
     return trash_response
@@ -184,8 +188,8 @@ async def mark_email_as_read_tool(email_id: str):
     """
 
     gmail_service = GmailService(
-        creds_file_path="D:\\Agentic AI\\MCP\\cred\\client_secret_979296281541-k7n60e6i7kcq1hijr30umufmis1auhgl.apps.googleusercontent.com.json",
-        token_path="D:\\Agentic AI\\MCP\\cred\\token.json",
+        creds_file_path=GMAIL_CRED_PATH,
+        token_path=GMAIL_TOKEN_PATH,
     )
     mark_response = await gmail_service.mark_email_as_read(email_id)
     return mark_response
@@ -217,8 +221,8 @@ async def create_draft_tool(recipient_id: str, subject: str, message: str):
     """
 
     gmail_service = GmailService(
-        creds_file_path="D:\\Agentic AI\\MCP\\cred\\client_secret_979296281541-k7n60e6i7kcq1hijr30umufmis1auhgl.apps.googleusercontent.com.json",
-        token_path="D:\\Agentic AI\\MCP\\cred\\token.json",
+        creds_file_path=GMAIL_CRED_PATH,
+        token_path=GMAIL_TOKEN_PATH,
     )
     create_draft_response = await gmail_service.create_draft(
         recipient_id, subject, message
@@ -239,8 +243,8 @@ async def list_drafts_tool():
     """
 
     gmail_service = GmailService(
-        creds_file_path="D:\\Agentic AI\\MCP\\cred\\client_secret_979296281541-k7n60e6i7kcq1hijr30umufmis1auhgl.apps.googleusercontent.com.json",
-        token_path="D:\\Agentic AI\\MCP\\cred\\token.json",
+        creds_file_path=GMAIL_CRED_PATH,
+        token_path=GMAIL_TOKEN_PATH,
     )
     drafts_response = await gmail_service.list_drafts()
     return drafts_response
@@ -259,8 +263,8 @@ async def list_labels_tool():
     """
 
     gmail_service = GmailService(
-        creds_file_path="D:\\Agentic AI\\MCP\\cred\\client_secret_979296281541-k7n60e6i7kcq1hijr30umufmis1auhgl.apps.googleusercontent.com.json",
-        token_path="D:\\Agentic AI\\MCP\\cred\\token.json",
+        creds_file_path=GMAIL_CRED_PATH,
+        token_path=GMAIL_TOKEN_PATH,
     )
     labels_response = await gmail_service.list_labels()
     return labels_response
@@ -284,8 +288,8 @@ async def create_label_tool(name: str):
     """
 
     gmail_service = GmailService(
-        creds_file_path="D:\\Agentic AI\\MCP\\cred\\client_secret_979296281541-k7n60e6i7kcq1hijr30umufmis1auhgl.apps.googleusercontent.com.json",
-        token_path="D:\\Agentic AI\\MCP\\cred\\token.json",
+        creds_file_path=GMAIL_CRED_PATH,
+        token_path=GMAIL_TOKEN_PATH,
     )
     create_label_response = await gmail_service.create_label(name)
     return create_label_response
@@ -313,8 +317,8 @@ async def apply_label_tool(email_id: str, label_id: str):
     """
 
     gmail_service = GmailService(
-        creds_file_path="D:\\Agentic AI\\MCP\\cred\\client_secret_979296281541-k7n60e6i7kcq1hijr30umufmis1auhgl.apps.googleusercontent.com.json",
-        token_path="D:\\Agentic AI\\MCP\\cred\\token.json",
+        creds_file_path=GMAIL_CRED_PATH,
+        token_path=GMAIL_TOKEN_PATH,
     )
     apply_label_response = await gmail_service.apply_label(email_id, label_id)
     return apply_label_response
@@ -342,8 +346,8 @@ async def remove_labels_tool(email_id: str, label_id: str):
     """
 
     gmail_service = GmailService(
-        creds_file_path="D:\\Agentic AI\\MCP\\cred\\client_secret_979296281541-k7n60e6i7kcq1hijr30umufmis1auhgl.apps.googleusercontent.com.json",
-        token_path="D:\\Agentic AI\\MCP\\cred\\token.json",
+        creds_file_path=GMAIL_CRED_PATH,
+        token_path=GMAIL_TOKEN_PATH,
     )
     remove_label_response = await gmail_service.remove_label(email_id, label_id)
     return remove_label_response
@@ -367,8 +371,8 @@ async def search_by_label_tool(label_id: str):
     """
 
     gmail_service = GmailService(
-        creds_file_path="D:\\Agentic AI\\MCP\\cred\\client_secret_979296281541-k7n60e6i7kcq1hijr30umufmis1auhgl.apps.googleusercontent.com.json",
-        token_path="D:\\Agentic AI\\MCP\\cred\\token.json",
+        creds_file_path=GMAIL_CRED_PATH,
+        token_path=GMAIL_TOKEN_PATH,
     )
     search_response = await gmail_service.search_by_label(label_id)
     return search_response
@@ -418,8 +422,8 @@ async def list_filters_tool():
     """
 
     gmail_service = GmailService(
-        creds_file_path="D:\\Agentic AI\\MCP\\cred\\client_secret_979296281541-k7n60e6i7kcq1hijr30umufmis1auhgl.apps.googleusercontent.com.json",
-        token_path="D:\\Agentic AI\\MCP\\cred\\token.json",
+        creds_file_path=GMAIL_CRED_PATH,
+        token_path=GMAIL_TOKEN_PATH,
     )
     filters_response = await gmail_service.list_filters()
     return filters_response
@@ -443,8 +447,8 @@ async def get_filter_tool(filter_id: str):
     """
 
     gmail_service = GmailService(
-        creds_file_path="D:\\Agentic AI\\MCP\\cred\\client_secret_979296281541-k7n60e6i7kcq1hijr30umufmis1auhgl.apps.googleusercontent.com.json",
-        token_path="D:\\Agentic AI\\MCP\\cred\\token.json",
+        creds_file_path=GMAIL_CRED_PATH,
+        token_path=GMAIL_TOKEN_PATH,
     )
     filter_response = await gmail_service.get_filter(filter_id)
     return filter_response
@@ -468,8 +472,8 @@ async def delete_filter_tool(filter_id: str):
     """
 
     gmail_service = GmailService(
-        creds_file_path="D:\\Agentic AI\\MCP\\cred\\client_secret_979296281541-k7n60e6i7kcq1hijr30umufmis1auhgl.apps.googleusercontent.com.json",
-        token_path="D:\\Agentic AI\\MCP\\cred\\token.json",
+        creds_file_path=GMAIL_CRED_PATH,
+        token_path=GMAIL_TOKEN_PATH,
     )
     delete_filter_response = await gmail_service.delete_filter(filter_id=filter_id)
     return delete_filter_response
@@ -500,8 +504,8 @@ async def search_emails_tool(query: str, max_results: int | None = None):
         max_results = int(max_results)
 
     gmail_service = GmailService(
-        creds_file_path="D:\\Agentic AI\\MCP\\cred\\client_secret_979296281541-k7n60e6i7kcq1hijr30umufmis1auhgl.apps.googleusercontent.com.json",
-        token_path="D:\\Agentic AI\\MCP\\cred\\token.json",
+        creds_file_path=GMAIL_CRED_PATH,
+        token_path=GMAIL_TOKEN_PATH,
     )
     search_response = await gmail_service.search_emails(
         query=query, max_results=max_results
@@ -527,8 +531,8 @@ async def create_folder_tool(name: str):
     """
 
     gmail_service = GmailService(
-        creds_file_path="D:\\Agentic AI\\MCP\\cred\\client_secret_979296281541-k7n60e6i7kcq1hijr30umufmis1auhgl.apps.googleusercontent.com.json",
-        token_path="D:\\Agentic AI\\MCP\\cred\\token.json",
+        creds_file_path=GMAIL_CRED_PATH,
+        token_path=GMAIL_TOKEN_PATH,
     )
     create_folder_response = await gmail_service.create_folder(name=name)
     return create_folder_response
@@ -556,8 +560,8 @@ async def move_to_folder_tool(email_id: str, folder_id: str):
     """
 
     gmail_service = GmailService(
-        creds_file_path="D:\\Agentic AI\\MCP\\cred\\client_secret_979296281541-k7n60e6i7kcq1hijr30umufmis1auhgl.apps.googleusercontent.com.json",
-        token_path="D:\\Agentic AI\\MCP\\cred\\token.json",
+        creds_file_path=GMAIL_CRED_PATH,
+        token_path=GMAIL_TOKEN_PATH,
     )
     move_to_folder_response = await gmail_service.move_to_folder(
         email_id=email_id, folder_id=folder_id
@@ -578,8 +582,8 @@ async def list_folders_tool():
     """
 
     gmail_service = GmailService(
-        creds_file_path="D:\\Agentic AI\\MCP\\cred\\client_secret_979296281541-k7n60e6i7kcq1hijr30umufmis1auhgl.apps.googleusercontent.com.json",
-        token_path="D:\\Agentic AI\\MCP\\cred\\token.json",
+        creds_file_path=GMAIL_CRED_PATH,
+        token_path=GMAIL_TOKEN_PATH,
     )
     folders_response = await gmail_service.list_folders()
     return folders_response
@@ -607,8 +611,8 @@ async def rename_labels_tool(label_id: str, new_name: str):
     """
 
     gmail_service = GmailService(
-        creds_file_path="D:\\Agentic AI\\MCP\\cred\\client_secret_979296281541-k7n60e6i7kcq1hijr30umufmis1auhgl.apps.googleusercontent.com.json",
-        token_path="D:\\Agentic AI\\MCP\\cred\\token.json",
+        creds_file_path=GMAIL_CRED_PATH,
+        token_path=GMAIL_TOKEN_PATH,
     )
     rename_label_response = await gmail_service.rename_label(label_id, new_name)
     return rename_label_response
@@ -632,8 +636,8 @@ async def delete_label_tool(label_id: str):
     """
 
     gmail_service = GmailService(
-        creds_file_path="D:\\Agentic AI\\MCP\\cred\\client_secret_979296281541-k7n60e6i7kcq1hijr30umufmis1auhgl.apps.googleusercontent.com.json",
-        token_path="D:\\Agentic AI\\MCP\\cred\\token.json",
+        creds_file_path=GMAIL_CRED_PATH,
+        token_path=GMAIL_TOKEN_PATH,
     )
     delete_label_response = await gmail_service.delete_label(label_id)
     return delete_label_response
@@ -657,8 +661,8 @@ async def archive_email_tool(email_id: str):
     """
 
     gmail_service = GmailService(
-        creds_file_path="D:\\Agentic AI\\MCP\\cred\\client_secret_979296281541-k7n60e6i7kcq1hijr30umufmis1auhgl.apps.googleusercontent.com.json",
-        token_path="D:\\Agentic AI\\MCP\\cred\\token.json",
+        creds_file_path=GMAIL_CRED_PATH,
+        token_path=GMAIL_TOKEN_PATH,
     )
     archive_response = await gmail_service.archive_email(email_id=email_id)
     return archive_response
@@ -689,8 +693,8 @@ async def batch_archive_tool(query: str, max_emails: int = 100):
         max_emails = int(max_emails)
 
     gmail_service = GmailService(
-        creds_file_path="D:\\Agentic AI\\MCP\\cred\\client_secret_979296281541-k7n60e6i7kcq1hijr30umufmis1auhgl.apps.googleusercontent.com.json",
-        token_path="D:\\Agentic AI\\MCP\\cred\\token.json",
+        creds_file_path=GMAIL_CRED_PATH,
+        token_path=GMAIL_TOKEN_PATH,
     )
     archive_response = await gmail_service.batch_archive(
         query=query, max_emails=max_emails
@@ -719,8 +723,8 @@ async def list_archived_tool(max_results: int = 100):
         max_results = int(max_results)
 
     gmail_service = GmailService(
-        creds_file_path="D:\\Agentic AI\\MCP\\cred\\client_secret_979296281541-k7n60e6i7kcq1hijr30umufmis1auhgl.apps.googleusercontent.com.json",
-        token_path="D:\\Agentic AI\\MCP\\cred\\token.json",
+        creds_file_path=GMAIL_CRED_PATH,
+        token_path=GMAIL_TOKEN_PATH,
     )
     archived_emails_response = await gmail_service.list_archived(
         max_results=max_results
@@ -746,8 +750,8 @@ async def restore_to_inbox_tool(email_id: str):
     """
 
     gmail_service = GmailService(
-        creds_file_path="D:\\Agentic AI\\MCP\\cred\\client_secret_979296281541-k7n60e6i7kcq1hijr30umufmis1auhgl.apps.googleusercontent.com.json",
-        token_path="D:\\Agentic AI\\MCP\\cred\\token.json",
+        creds_file_path=GMAIL_CRED_PATH,
+        token_path=GMAIL_TOKEN_PATH,
     )
     restore_response = await gmail_service.restore_to_inbox(email_id=email_id)
     return restore_response
