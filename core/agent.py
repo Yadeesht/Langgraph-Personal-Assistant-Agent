@@ -32,8 +32,8 @@ def agent_node_factory(llm_with_tools):
         logger.info("=" * 80)
         if last_messages:
             content_preview = (
-                last_messages[:200] + ["..."]
-                if len(str(last_messages)) > 200
+                last_messages[:20] + ["..."]
+                if len(str(last_messages)) > 20
                 else str(last_messages)
             )
             logger.info(f"📝 Content preview: {content_preview}")

@@ -32,7 +32,7 @@ pip install mcp nest_asyncio google-api-python-client google-auth-httplib2 googl
 ## Running the Project
 
 1.  **Enable the Gmail API:** Before running the project, you need to enable the Gmail API in your Google Cloud Platform project and download the `client_secret.json` file.
-2.  **Update Credentials Path:** The path to the `client_secret.json` file is hardcoded in `MCP/server.py` and `MCP/service/gmail_service.py`. You will need to update these paths to point to the correct location of your `client_secret.json` file.
+2.  **Update Credentials Path:** The path to the `client_secret.json` file is hardcoded in `MCP/server.py` and `MCP/service/gmail_service.py`. You will need to update these paths to point to the correct location of your `client_secret.json` file. after the update you have test run the test-client to get the gmail_token.json just once after it can be reused(***important***)
 3.  **Run the server:**
     ```bash
     python MCP/server.py

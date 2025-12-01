@@ -11,7 +11,7 @@ MCP_SERVER_PATH = BASE_DIR / "MCP" / "server.py"
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
-DEFAULT_MODEL = "mistralai/mistral-small-3.2-24b-instruct:free"
+DEFAULT_MODEL = "openai/gpt-oss-20b:free"
 MAX_RETRIES = 3
 REQUEST_TIMEOUT = 30
 
