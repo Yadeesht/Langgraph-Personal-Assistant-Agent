@@ -508,7 +508,7 @@ class GmailService:
             )
 
             logger.info(f"Label {label_id} applied to email {email_id}")
-            return f"Label applied successfully to email."
+            return "Label applied successfully to email."
         except HttpError as error:
             return f"An HttpError occurred: {str(error)}"
 
@@ -523,7 +523,7 @@ class GmailService:
             )
 
             logger.info(f"Label {label_id} removed from email {email_id}")
-            return f"Label removed successfully from email."
+            return "Label removed successfully from email."
         except HttpError as error:
             return f"An HttpError occurred: {str(error)}"
 
@@ -674,7 +674,7 @@ class GmailService:
             logger.info(f"Filter deleted: {filter_id}")
             return "Filter deleted successfully."
         except HttpError as error:
-            return "An HttpError occurred: {str(error)}"
+            return f"An HttpError occurred: {str(error)}"
 
     async def search_emails(
         self, query: str, max_results: int = 50
@@ -840,7 +840,7 @@ class GmailService:
             )
 
             logger.info(f"Email {email_id} moved to folder {folder_id}")
-            return f"Email moved to folder successfully."
+            return "Email moved to folder successfully."
         except HttpError as error:
             return f"An HttpError occurred: {str(error)}"
 
@@ -921,7 +921,7 @@ class GmailService:
             )
 
             logger.info(f"Label deleted: {label_id}")
-            return f"Label deleted successfully."
+            return "Label deleted successfully."
         except HttpError as error:
             return f"An HttpError occurred: {str(error)}"
 
@@ -1047,6 +1047,6 @@ class GmailService:
             )
 
             logger.info(f"Email restored to inbox: {email_id}")
-            return f"Email restored to inbox successfully."
+            return "Email restored to inbox successfully."
         except HttpError as error:
             return f"An HttpError occurred: {str(error)}"
