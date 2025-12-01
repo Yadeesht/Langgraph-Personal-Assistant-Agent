@@ -672,9 +672,9 @@ class GmailService:
             )
 
             logger.info(f"Filter deleted: {filter_id}")
-            return f"Filter deleted successfully."
+            return "Filter deleted successfully."
         except HttpError as error:
-            return f"An HttpError occurred: {str(error)}"
+            return "An HttpError occurred: {str(error)}"
 
     async def search_emails(
         self, query: str, max_results: int = 50
@@ -944,7 +944,7 @@ class GmailService:
             )
 
             logger.info(f"Email archived: {email_id}")
-            return f"Email archived successfully."
+            return "Email archived successfully."
         except HttpError as error:
             return f"An HttpError occurred: {str(error)}"
 
