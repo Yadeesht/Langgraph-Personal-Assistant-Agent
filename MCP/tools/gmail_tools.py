@@ -57,20 +57,6 @@ async def get_user_email(service) -> str:
 
 
 @server.tool()
-async def user_input_tool(prompt: str):
-    """
-    Ask the user for input.
-
-    Args:
-        prompt: The question to ask the user
-
-    Returns:
-        The user's response
-    """
-    return {"__interrupt__": prompt}
-
-
-@server.tool()
 async def send_email_tool(recipient_id: str, subject: str, message: str):
     """
     description="Send an email to a recipient."

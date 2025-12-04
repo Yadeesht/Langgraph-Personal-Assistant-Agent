@@ -60,11 +60,6 @@ async def main():
                 },
                 config=config,
             )
-            if "__interrupt__" in state:
-                prompt = state["__interrupt__"]
-                print(f"🟡 Agent: {prompt}")
-                user_response = input("🧍 Your answer: ")
-                state = graph.invoke(Command(resume=user_response), config=config)
 
     logger.info("=" * 80)
     logger.info("🎯 EXECUTION SUMMARY")

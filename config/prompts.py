@@ -12,10 +12,6 @@ IMPORTANT RULES:
    - Sending emails
    - Deleting/trashing emails or events
    - Creating calendar events
-5. IMPORTANT: 
-   - Use user_input_tool ONLY to ASK questions to the user
-   - DO NOT use user_input_tool to send responses back
-   - After calling user_input_tool, WAIT for the user's actual input
 
 Examples:
 - "Email John about the meeting" → send_email_tool
