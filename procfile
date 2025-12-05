@@ -1,0 +1,2 @@
+server: python MCP/core/communication_server.py
+server2: python MCP/core/productivity_server.py
