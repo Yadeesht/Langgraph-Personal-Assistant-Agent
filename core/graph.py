@@ -60,21 +60,16 @@ def build_graph(tool_sets, checkpointer):
             content_preview = preview[:100] + "..." if len(preview) > 100 else preview
             logger.info(f"📝 Latest Input: {content_preview}")
         logger.info("=" * 80)
-        # --- LOGGING END ---
 
-        # 1. Prepare Logic
         router = supervisor_llm.with_structured_output(Route)
 
-        # 2. Invoke LLM
         response = router.invoke(
             [SystemMessage(content=SUPERVISOR_SYSTEM_PROMPT)] + state["messages"]
         )
 
-        # --- LOGGING RESULT ---
         logger.info(f"🧭 ROUTING DECISION MADE")
         logger.info(f"👉 Selected Agent: {response.step}")
         logger.info("=" * 80)
-        # ----------------------
 
         return {"next": response.step}
 
