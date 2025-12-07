@@ -1,20 +1,42 @@
-from langchain_openai import ChatOpenAI
+# from langchain_openai import ChatOpenAI
+
+# from config.settings import (
+#     DEFAULT_MODEL,
+#     MAX_RETRIES,
+#     OPENROUTER_API_KEY,
+#     OPENROUTER_BASE_URL,
+#     REQUEST_TIMEOUT,
+# )
+
+
+# def build_llm_with_tools(tools):
+#     llm = ChatOpenAI(
+#         model=DEFAULT_MODEL,
+#         openai_api_key=OPENROUTER_API_KEY,
+#         openai_api_base=OPENROUTER_BASE_URL,
+#         max_retries=MAX_RETRIES,
+#         timeout=REQUEST_TIMEOUT,
+#     )
+#     return llm.bind_tools(tools)
+
+
+# i am running out of limits mate
+from langchain_google_genai import ChatGoogleGenerativeAI
 
 from config.settings import (
-    DEFAULT_MODEL,
-    MAX_RETRIES,
-    OPENROUTER_API_KEY,
-    OPENROUTER_BASE_URL,
     REQUEST_TIMEOUT,
+    GOOGLE_API_KEY,
 )
+
+DEFAULT_MODEL = "gemini-3-pro-preview"  # good free model
 
 
 def build_llm_with_tools(tools):
-    llm = ChatOpenAI(
+    llm = ChatGoogleGenerativeAI(
         model=DEFAULT_MODEL,
-        openai_api_key=OPENROUTER_API_KEY,
-        openai_api_base=OPENROUTER_BASE_URL,
-        max_retries=MAX_RETRIES,
+        google_api_key=GOOGLE_API_KEY,  # from env or settings
+        max_output_tokens=2048,  # adjust if needed
         timeout=REQUEST_TIMEOUT,
     )
+    # LangChain uses same style: bind_tools still works
     return llm.bind_tools(tools)

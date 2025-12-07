@@ -1,13 +1,13 @@
 """Clear memory for a specific thread"""
 
-from pathlib import Path
 import sys
-
+from pathlib import Path
 
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 import sqlite3
+
 from config.settings import DB_PATH
 
 thread_id = "gmail_thread_003"  # Thread to clear

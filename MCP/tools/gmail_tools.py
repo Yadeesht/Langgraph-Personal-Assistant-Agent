@@ -2,24 +2,21 @@ import asyncio
 import base64
 import logging
 import sys
-from pathlib import Path
-
-root_dir = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(root_dir))
-
 import webbrowser
 from base64 import urlsafe_b64decode
 from datetime import datetime, timedelta
 from email import message_from_bytes
 from email.header import decode_header
 from email.message import EmailMessage
-
+from pathlib import Path
 
 from googleapiclient.errors import HttpError
 
+root_dir = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(root_dir))
+
 from MCP.auth.service_decoder import get_google_service
 from MCP.core.server_init import comm_server
-
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -29,7 +26,7 @@ logger = logging.getLogger(__name__)
 def get_service():
     """Get Gmail service using shared auth"""
     base_dir = Path(__file__).parent.parent
-    token_path = str(base_dir / "cred" / "token.json")
+    token_path = str(base_dir / "cred" / "gmail_token.json")
     creds_path = str(base_dir / "cred" / "setup_cred.json")
 
     return get_google_service(

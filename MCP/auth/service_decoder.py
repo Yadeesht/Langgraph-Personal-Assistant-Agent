@@ -1,8 +1,8 @@
 import functools
 import logging
 import os
-from typing import Callable, Dict
 from pathlib import Path
+from typing import Callable, Dict
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -41,7 +41,7 @@ def get_google_service(
     Args:
         service_type: Type of service ('gmail', 'calendar', etc.)
         scope_key: Key for scopes in SCOPES dict
-        token_path: Path to token file
+        token_path: Path to token file (service-specific)
         creds_path: Path to credentials file
         force_refresh: Force creation of new service
 
@@ -59,7 +59,7 @@ def get_google_service(
 
     logger.info(f"Authenticating {service_type} with scopes: {scope_key}")
 
-    # Load existing credentials from token.json
+    # Load existing credentials from service-specific token file
     if os.path.exists(token_path):
         logger.info(f"Loading credentials from {token_path}")
         creds = Credentials.from_authorized_user_file(token_path, scopes)
@@ -68,14 +68,20 @@ def get_google_service(
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             logger.info("Refreshing expired credentials")
-            creds.refresh(Request())
-        else:
+            try:
+                creds.refresh(Request())
+            except Exception as e:
+                logger.warning(f"Token refresh failed: {e}. Starting new auth flow.")
+                creds = None
+
+        if not creds:
             logger.info(f"Starting new authentication flow using {creds_path}")
             flow = InstalledAppFlow.from_client_secrets_file(creds_path, scopes)
             creds = flow.run_local_server(port=0)
 
         # Save the credentials for the next run
         logger.info(f"Saving credentials to {token_path}")
+        os.makedirs(os.path.dirname(token_path), exist_ok=True)
         with open(token_path, "w") as token:
             token.write(creds.to_json())
 
@@ -99,7 +105,8 @@ def require_google_service(service_type: str, scope_key: str):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             base_dir = Path(__file__).parent.parent
-            token_path = str(base_dir / "cred" / "token.json")
+            # Use service-specific token files
+            token_path = str(base_dir / "cred" / f"token_{service_type}.json")
             creds_path = str(base_dir / "cred" / "setup_cred.json")
 
             service = get_google_service(

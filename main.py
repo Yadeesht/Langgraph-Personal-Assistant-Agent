@@ -53,12 +53,12 @@ async def main():
         async with aiosqlite.connect(str(DB_PATH)) as conn:
             checkpointer = CleaningAsyncSqliteSaver(conn)
             graph = build_graph(tool_sets, checkpointer)
-            g = graph.get_graph()
+            # g = graph.get_graph()
 
-            png_bytes = g.draw_mermaid_png()
+            # png_bytes = g.draw_mermaid_png()
 
-            with open("agent_graph.png", "wb") as f:
-                f.write(png_bytes)
+            # with open("agent_graph.png", "wb") as f:
+            #     f.write(png_bytes)
 
             config = {"configurable": {"thread_id": DEFAULT_THREAD_ID}}
 
@@ -73,7 +73,6 @@ async def main():
                     continue
 
                 logger.info(f"👤 User Query: {user_query}")
-                logger.info("=" * 80)
                 state = await graph.ainvoke(
                     {
                         "messages": [

@@ -1,11 +1,12 @@
 import json
 from datetime import datetime
+
 from langchain_core.messages import trim_messages
 
 from core.state import State
+from utils.context_cleaner import sanitize_history
 from utils.logger import request_counter, setup_logger
 from utils.token_counter import count_tokens
-from utils.context_cleaner import sanitize_history
 
 logger = setup_logger(__name__)
 
@@ -48,6 +49,8 @@ def agent_node_factory(llm_with_tools, system_prompt):
                 if len(str(last_messages)) > 20
                 else str(last_messages)
             )
+            content_preview = sanitize_history(content_preview)
+            content_preview = json.dumps(content_preview[-3:], indent=2)
             logger.info(f"📝 Content preview: {content_preview}")
 
         messages = [{"role": "system", "content": formatted_prompt}] + last_messages
@@ -55,8 +58,9 @@ def agent_node_factory(llm_with_tools, system_prompt):
         logger.info("=" * 80)
 
         msg = llm_with_tools.invoke(messages)
-        logger.info(f"✅ LLM RESPONSE RECEIVED: {msg}")
-        logger.info(f"📊 Response type: {msg.__class__.__name__}")
+
+        # logger.info(f"✅ LLM RESPONSE RECEIVED: {sanitize_history([msg])}")
+        # logger.info(f"📊 Response type: {msg.__class__.__name__}")
 
         if hasattr(msg, "tool_calls") and msg.tool_calls:
             logger.info(f"🔧 Tool calls made: {len(msg.tool_calls)}")

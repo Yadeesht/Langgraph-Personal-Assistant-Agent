@@ -34,7 +34,7 @@ def get_service():
     """Get or create Calendar service with proper authentication"""
     try:
         base_dir = Path(__file__).parent.parent
-        token_path = str(base_dir / "cred" / "token.json")
+        token_path = str(base_dir / "cred" / "calendar_token.json")
         creds_path = str(base_dir / "cred" / "setup_cred.json")
 
         return get_google_service(

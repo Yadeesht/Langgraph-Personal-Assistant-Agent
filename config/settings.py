@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -10,6 +11,7 @@ COMMUNICATION_SERVER = BASE_DIR / "MCP" / "core" / "communication_server.py"
 PRODUCTIVITY_SERVER = BASE_DIR / "MCP" / "core" / "productivity_server.py"
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 DEFAULT_MODEL = "openai/gpt-oss-20b:free"
@@ -19,4 +21,4 @@ REQUEST_TIMEOUT = 30
 MAX_TOKENS = 2000
 TOKEN_STRATEGY = "last"
 
-DEFAULT_THREAD_ID = "gmail_thread_005"
+DEFAULT_THREAD_ID = "gmail_thread_010"
