@@ -12,11 +12,11 @@ from pathlib import Path
 
 from googleapiclient.errors import HttpError
 
-root_dir = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(root_dir))
-
 from MCP.auth.service_decoder import get_google_service
 from MCP.core.server_init import comm_server
+
+root_dir = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(root_dir))
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -1170,9 +1170,3 @@ async def restore_to_inbox_tool(email_id: str):
     except Exception as error:
         logger.error(f"Restore to inbox error: {str(error)}")
         return {"error": str(error)}
-
-
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.DEBUG)
-    print("Registered tools:", [tool.name for tool in comm_server.list_tools()])
-    comm_server.run()
