@@ -90,8 +90,6 @@ def get_google_service(
         with open(token_path, "w") as token:
             token.write(creds.to_json())
 
-    # Determine API version and service name mapping
-    # Google Chat API uses "chat" as the service name, but we refer to it as "gchat" internally
     api_service_name = "chat" if service_type == "gchat" else service_type
     version = "v1" if service_type in ["gmail", "gchat"] else "v3"
 

@@ -39,7 +39,7 @@ def agent_node_factory(llm_with_tools, system_prompt):
                 current_time=datetime.now().strftime("%Y-%m-%d %H:%M")
             )
         except KeyError:
-            # If the prompt (like Comm Agent) doesn't have {current_time}, use as is
+            # If the prompt (like Communication Agent) doesn't have {current_time}, use as is
             formatted_prompt = system_prompt
         except Exception as e:
             logger.error(f"Error formatting prompt: {e}")

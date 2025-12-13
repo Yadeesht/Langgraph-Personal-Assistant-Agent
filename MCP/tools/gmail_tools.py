@@ -13,7 +13,7 @@ from pathlib import Path
 from googleapiclient.errors import HttpError
 
 from MCP.auth.service_decoder import get_google_service
-from MCP.core.server_init import comm_server
+from MCP.core.server_init import communication_server
 
 root_dir = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(root_dir))
@@ -55,7 +55,7 @@ async def get_user_email(service) -> str:
     return profile.get("emailAddress", "")
 
 
-@comm_server.tool()
+@communication_server.tool()
 async def send_email_tool(recipient_id: str, subject: str, message: str):
     """
     description="Send an email to a recipient."
@@ -103,7 +103,7 @@ async def send_email_tool(recipient_id: str, subject: str, message: str):
         return {"status": "error", "error_message": str(error)}
 
 
-@comm_server.tool()
+@communication_server.tool()
 async def open_email_tool(email_id: str):
     """
     description="Open a specific email in the browser using its Gmail web interface."
@@ -128,7 +128,7 @@ async def open_email_tool(email_id: str):
         return {"status": "error", "error_message": str(error)}
 
 
-@comm_server.tool()
+@communication_server.tool()
 async def get_unread_emails_tool(date=10, max_results=20):
     """
     description="Fetch unread Gmail emails from the last 'n' days."
@@ -203,7 +203,7 @@ async def get_unread_emails_tool(date=10, max_results=20):
         return {"error": str(error)}
 
 
-@comm_server.tool()
+@communication_server.tool()
 async def read_email_tool(email_id: str):
     """
     description="Read the full content of a specific email by its ID. Use this after getting unread emails to view the complete message."
@@ -269,7 +269,7 @@ async def read_email_tool(email_id: str):
         return {"error": str(error)}
 
 
-@comm_server.tool()
+@communication_server.tool()
 async def trash_email_tool(email_id: str):
     """
     description="Move an email to trash. Always confirm with user before trashing any email."
@@ -298,7 +298,7 @@ async def trash_email_tool(email_id: str):
         return {"error": str(error)}
 
 
-@comm_server.tool()
+@communication_server.tool()
 async def mark_email_as_read_tool(email_id: str):
     """
     description="Mark a specific email as read to remove the unread status."
@@ -330,7 +330,7 @@ async def mark_email_as_read_tool(email_id: str):
         return {"error": str(error)}
 
 
-@comm_server.tool()
+@communication_server.tool()
 async def create_draft_tool(recipient_id: str, subject: str, message: str):
     """
     description="Create a draft email without sending it. Use this when user wants to draft an email for later review."
@@ -382,7 +382,7 @@ async def create_draft_tool(recipient_id: str, subject: str, message: str):
         return {"status": "error", "error_message": str(error)}
 
 
-@comm_server.tool()
+@communication_server.tool()
 async def list_drafts_tool():
     """
     description="List all draft emails in the user's mailbox."
@@ -427,7 +427,7 @@ async def list_drafts_tool():
         return {"error": str(error)}
 
 
-@comm_server.tool()
+@communication_server.tool()
 async def list_labels_tool():
     """
     description="List all labels (tags/folders) available in the user's Gmail mailbox."
@@ -462,7 +462,7 @@ async def list_labels_tool():
         return {"error": str(error)}
 
 
-@comm_server.tool()
+@communication_server.tool()
 async def create_label_tool(name: str):
     """
     description="Create a new label (tag/folder) in Gmail for organizing emails."
@@ -502,7 +502,7 @@ async def create_label_tool(name: str):
         return {"status": "error", "error_message": str(error)}
 
 
-@comm_server.tool()
+@communication_server.tool()
 async def apply_label_tool(email_id: str, label_id: str):
     """
     description="Apply a label (tag) to a specific email for organization."
@@ -539,7 +539,7 @@ async def apply_label_tool(email_id: str, label_id: str):
         return {"error": str(error)}
 
 
-@comm_server.tool()
+@communication_server.tool()
 async def remove_labels_tool(email_id: str, label_id: str):
     """
     description="Remove a label (tag) from a specific email."
@@ -579,7 +579,7 @@ async def remove_labels_tool(email_id: str, label_id: str):
         return {"error": str(error)}
 
 
-@comm_server.tool()
+@communication_server.tool()
 async def search_by_label_tool(label_id: str):
     """
     description="Search for all emails that have a specific label applied."
@@ -624,7 +624,7 @@ async def search_by_label_tool(label_id: str):
 
 
 """This tool is not working with the Gmail API but there is a way using the google.auth"""
-# @comm_server.tool()
+# @communication_server.tool()
 # async def create_filter_tool(**kwargs):
 #     """
 #     name="create-filter"
@@ -654,7 +654,7 @@ async def search_by_label_tool(label_id: str):
 #     return create_filter_response
 
 
-@comm_server.tool()
+@communication_server.tool()
 async def list_filters_tool():
     """
     description="List all email filters configured in the user's Gmail account."
@@ -676,7 +676,7 @@ async def list_filters_tool():
         return f"An HttpError occurred: {str(error)}"
 
 
-@comm_server.tool()
+@communication_server.tool()
 async def get_filter_tool(filter_id: str):
     """
     description="Get detailed information about a specific email filter by its ID."
@@ -703,7 +703,7 @@ async def get_filter_tool(filter_id: str):
         return f"An HttpError occurred: {str(error)}"
 
 
-@comm_server.tool()
+@communication_server.tool()
 async def delete_filter_tool(filter_id: str):
     """
     description="Delete a specific email filter by its ID."
@@ -735,7 +735,7 @@ async def delete_filter_tool(filter_id: str):
         return f"An HttpError occurred: {str(error)}"
 
 
-@comm_server.tool()
+@communication_server.tool()
 async def search_emails_tool(query: str, max_results: int | None = None):
     """
     description="Search for emails using Gmail's advanced search syntax. Supports queries like 'from:sender@example.com subject:invoice after:2025/01/01 has:attachment'."
@@ -815,7 +815,7 @@ async def search_emails_tool(query: str, max_results: int | None = None):
         return {"error": str(error)}
 
 
-@comm_server.tool()
+@communication_server.tool()
 async def create_folder_tool(name: str):
     """
     description="Create a new folder in Gmail. Note: In Gmail, folders are implemented as labels with special handling."
@@ -856,7 +856,7 @@ async def create_folder_tool(name: str):
         return {"status": "error", "error_message": str(error)}
 
 
-@comm_server.tool()
+@communication_server.tool()
 async def move_to_folder_tool(email_id: str, folder_id: str):
     """
     description="Move an email to a specific folder (applies folder label and removes from inbox)."
@@ -897,7 +897,7 @@ async def move_to_folder_tool(email_id: str, folder_id: str):
         return {"error": str(error)}
 
 
-@comm_server.tool()
+@communication_server.tool()
 async def list_folders_tool():
     """
     description="List all user-created folders in Gmail."
@@ -929,7 +929,7 @@ async def list_folders_tool():
         return {"error": str(error)}
 
 
-@comm_server.tool()
+@communication_server.tool()
 async def rename_labels_tool(label_id: str, new_name: str):
     """
     description="Rename an existing label to a new name."
@@ -978,7 +978,7 @@ async def rename_labels_tool(label_id: str, new_name: str):
         return {"status": "error", "error_message": str(error)}
 
 
-@comm_server.tool()
+@communication_server.tool()
 async def delete_label_tool(label_id: str):
     """
     description="Permanently delete a label from Gmail. This action cannot be undone."
@@ -1008,7 +1008,7 @@ async def delete_label_tool(label_id: str):
         return {"error": str(error)}
 
 
-@comm_server.tool()
+@communication_server.tool()
 async def archive_email_tool(email_id: str):
     """
     description="Archive a single email (removes from inbox without deleting, keeps in 'All Mail')."
@@ -1041,7 +1041,7 @@ async def archive_email_tool(email_id: str):
         return {"error": str(error)}
 
 
-@comm_server.tool()
+@communication_server.tool()
 async def batch_archive_tool(query: str, max_emails: int = 100):
     """
     description="Archive multiple emails matching a Gmail search query. Use Gmail search syntax to specify which emails to archive."
@@ -1113,7 +1113,7 @@ async def batch_archive_tool(query: str, max_emails: int = 100):
         return {"status": "error", "error_message": str(error)}
 
 
-@comm_server.tool()
+@communication_server.tool()
 async def list_archived_tool(max_results: int = 100):
     """
     description="List archived emails (emails not in inbox but still in 'All Mail')."
@@ -1139,7 +1139,7 @@ async def list_archived_tool(max_results: int = 100):
         return f"An error occurred: {str(error)}"
 
 
-@comm_server.tool()
+@communication_server.tool()
 async def restore_to_inbox_tool(email_id: str):
     """
     description="Restore an archived email back to the inbox."

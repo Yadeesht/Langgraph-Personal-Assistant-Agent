@@ -18,7 +18,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 from MCP.auth.service_decoder import get_google_service
-from MCP.core.productivity_server import prod_server
+from MCP.core.planning_server import planning_server
 
 root_dir = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(root_dir))
@@ -297,7 +297,7 @@ def _correct_time_format_for_api(
     return time_str
 
 
-@prod_server.tool()
+@planning_server.tool()
 async def list_calendars() -> str:
     """
     List all calendars accessible to the user.
@@ -348,7 +348,7 @@ async def list_calendars() -> str:
         return json.dumps({"error": error_msg})
 
 
-@prod_server.tool()
+@planning_server.tool()
 async def get_events(
     calendar_id: str = "primary",
     event_id: Optional[str] = None,
@@ -557,7 +557,7 @@ async def get_events(
         return json.dumps({"error": error_msg})
 
 
-@prod_server.tool()
+@planning_server.tool()
 async def create_event(
     summary: str,
     start_time: str,
@@ -777,7 +777,7 @@ async def create_event(
         return json.dumps({"error": error_msg})
 
 
-@prod_server.tool()
+@planning_server.tool()
 async def modify_event(
     event_id: str,
     calendar_id: str = "primary",
@@ -1008,7 +1008,7 @@ async def modify_event(
         return json.dumps({"error": error_msg})
 
 
-@prod_server.tool()
+@planning_server.tool()
 async def delete_event(event_id: str, calendar_id: str = "primary") -> str:
     """
     Deletes an existing event.

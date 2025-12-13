@@ -8,7 +8,7 @@ load_dotenv()
 BASE_DIR = Path(__file__).parent.parent
 DB_PATH = BASE_DIR / "data" / "memory.db"
 COMMUNICATION_SERVER = BASE_DIR / "MCP" / "core" / "communication_server.py"
-PRODUCTIVITY_SERVER = BASE_DIR / "MCP" / "core" / "productivity_server.py"
+PLANNING_SERVER = BASE_DIR / "MCP" / "core" / "planning_server.py"
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
@@ -21,4 +21,4 @@ REQUEST_TIMEOUT = 30
 MAX_TOKENS = 2000
 TOKEN_STRATEGY = "last"
 
-DEFAULT_THREAD_ID = "gmail_thread_014"
+DEFAULT_THREAD_ID = "gmail_thread_02"

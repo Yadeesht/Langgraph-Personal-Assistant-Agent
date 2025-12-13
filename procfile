@@ -1,3 +1,2 @@
 server: python MCP/core/communication_server.py
-server2: python MCP/core/productivity_server.py
-server3: python MCP/core/content_server.py
+server2: python MCP/core/planning_server.py

@@ -13,7 +13,7 @@ from pathlib import Path
 from googleapiclient.errors import HttpError
 
 from MCP.auth.service_decoder import get_google_service
-from MCP.core.server_init import comm_server
+from MCP.core.server_init import communication_server
 
 root_dir = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(root_dir))
@@ -38,7 +38,7 @@ def get_service():
     )
 
 
-@comm_server.tool()
+@communication_server.tool()
 async def list_spaces(
     page_size: int = 100,
     space_type: str = "all",  # "all", "room", "dm"
@@ -90,7 +90,7 @@ async def list_spaces(
     return "\n".join(output)
 
 
-@comm_server.tool()
+@communication_server.tool()
 async def get_messages(
     space_id: str,
     page_size: int = 50,
@@ -150,7 +150,7 @@ async def get_messages(
     return "\n".join(output)
 
 
-@comm_server.tool()
+@communication_server.tool()
 async def send_message(
     space_id: str,
     message_text: str,
@@ -196,7 +196,7 @@ async def send_message(
     return message
 
 
-@comm_server.tool()
+@communication_server.tool()
 async def search_messages(
     query: str,
     space_id: Optional[str] = None,

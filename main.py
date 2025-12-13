@@ -8,7 +8,7 @@ from config.settings import (
     COMMUNICATION_SERVER,
     DB_PATH,
     DEFAULT_THREAD_ID,
-    PRODUCTIVITY_SERVER,
+    PLANNING_SERVER,
 )
 from core.graph import build_graph
 from utils.checkpointer import CleaningAsyncSqliteSaver
@@ -16,7 +16,7 @@ from utils.logger import request_counter, setup_logger
 
 logger = setup_logger(__name__)
 
-comm_config = {
+communication_config = {
     "communication": {
         "transport": "stdio",
         "command": "python",
@@ -24,11 +24,11 @@ comm_config = {
     }
 }
 
-prod_config = {
-    "productivity": {
+planning_config = {
+    "planning": {
         "transport": "stdio",
         "command": "python",
-        "args": [str(PRODUCTIVITY_SERVER)],
+        "args": [str(PLANNING_SERVER)],
     }
 }
 
@@ -40,15 +40,14 @@ async def main():
 
     try:
         # Initialize MCP clients (no context manager)
-        comm_client = MultiServerMCPClient(comm_config)
-        comm_tools = await comm_client.get_tools()
-        logger.info(f"📧 Communication Tools: {len(comm_tools)}")
+        communication_client = MultiServerMCPClient(communication_config)
+        communication_tools = await communication_client.get_tools()
+        logger.info(f"📧 Communication Tools: {len(communication_tools)}")
 
-        prod_client = MultiServerMCPClient(prod_config)
-        prod_tools = await prod_client.get_tools()
-        logger.info(f"✅ Productivity Tools: {len(prod_tools)}")
-
-        tool_sets = {"communication": comm_tools, "productivity": prod_tools}
+        planning_client = MultiServerMCPClient(planning_config)
+        planning_tools = await planning_client.get_tools()
+        logger.info(f"✅ Planning Tools: {len(planning_tools)}")
+        tool_sets = {"communication": communication_tools, "planning": planning_tools}
 
         async with aiosqlite.connect(str(DB_PATH)) as conn:
             checkpointer = CleaningAsyncSqliteSaver(conn)
