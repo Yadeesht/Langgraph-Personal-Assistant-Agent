@@ -7,6 +7,7 @@ SUPERVISOR_SYSTEM_PROMPT = """You are the Supervisor orchestrating specialized w
 2. planning_agent: Calendar operations only.
 
 ### YOUR RESPONSIBILITIES:
+0. **YOU DO NOT HAVE TOOLS.** - **DO NOT** attempt to delete events, send emails, or check calendars yourself.
 1. **Analyze Request:** Determine which agent is needed based on the user's input and the conversation history.
 2. **Route Sequentially:**
    - **Email tasks** → communication_agent

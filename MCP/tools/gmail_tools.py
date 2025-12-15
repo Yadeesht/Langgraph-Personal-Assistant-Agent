@@ -9,7 +9,7 @@ from email import message_from_bytes
 from email.header import decode_header
 from email.message import EmailMessage
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from googleapiclient.errors import HttpError
 
@@ -51,11 +51,162 @@ async def get_user_email(service) -> str:
     return profile.get("emailAddress", "")
 
 
+def _generate_gmail_web_url(item_id: str, account_index: int = 0) -> str:
+    """
+    Generate Gmail web interface URL for a message or thread ID.
+    Uses #all to access messages from any Gmail folder/label (not just inbox).
+
+    Args:
+        item_id: Gmail message ID or thread ID
+        account_index: Google account index (default 0 for primary account)
+
+    Returns:
+        Gmail web interface URL that opens the message/thread in Gmail web interface
+    """
+    return f"https://mail.google.com/mail/u/{account_index}/#all/{item_id}"
+
+
+def _format_gmail_results_plain(
+    messages: list, query: str, next_page_token: Optional[str] = None
+) -> str:
+    """Format Gmail search results in clean, LLM-friendly plain text."""
+    if not messages:
+        return f"No messages found for query: '{query}'"
+
+    lines = [
+        f"Found {len(messages)} messages matching '{query}':",
+        "",
+        "📧 MESSAGES:",
+    ]
+
+    for i, msg in enumerate(messages, 1):
+        # Handle potential null/undefined message objects
+        if not msg or not isinstance(msg, dict):
+            lines.extend(
+                [
+                    f"  {i}. Message: Invalid message data",
+                    "     Error: Message object is null or malformed",
+                    "",
+                ]
+            )
+            continue
+
+        # Handle potential null/undefined values from Gmail API
+        message_id = msg.get("id")
+        thread_id = msg.get("threadId")
+
+        # Convert None, empty string, or missing values to "unknown"
+        if not message_id:
+            message_id = "unknown"
+        if not thread_id:
+            thread_id = "unknown"
+
+        if message_id != "unknown":
+            message_url = _generate_gmail_web_url(message_id)
+        else:
+            message_url = "N/A"
+
+        if thread_id != "unknown":
+            thread_url = _generate_gmail_web_url(thread_id)
+        else:
+            thread_url = "N/A"
+
+        lines.extend(
+            [
+                f"  {i}. Message ID: {message_id}",
+                f"     Web Link: {message_url}",
+                f"     Thread ID: {thread_id}",
+                f"     Thread Link: {thread_url}",
+                "",
+            ]
+        )
+
+    lines.extend(
+        [
+            "💡 USAGE:",
+            "  • Pass the Message IDs **as a list** to get_gmail_messages_content_batch()",
+            "    e.g. get_gmail_messages_content_batch(message_ids=[...])",
+            "  • Pass the Thread IDs to get_gmail_thread_content() (single) or get_gmail_threads_content_batch() (batch)",
+        ]
+    )
+
+    # Add pagination info if there's a next page
+    if next_page_token:
+        lines.append("")
+        lines.append(
+            f"📄 PAGINATION: To get the next page, call search_gmail_messages again with page_token='{next_page_token}'"
+        )
+
+    return "\n".join(lines)
+
+
+@communication_server.tool()
+async def search_gmail_messages(
+    query: str,
+    user_google_email: str,
+    page_size: int = 10,
+    page_token: Optional[str] = None,
+) -> str:
+    """
+    Searches messages in a user's Gmail account based on a query.
+    Returns both Message IDs and Thread IDs for each found message, along with Gmail web interface links for manual verification.
+    Supports pagination via page_token parameter.
+
+    Args:
+        query (str): The search query. Supports standard Gmail search operators.
+        page_size (int): The maximum number of messages to return. Defaults to 10.
+        page_token (Optional[str]): Token for retrieving the next page of results. Use the next_page_token from a previous response.
+
+    Returns:
+        str: LLM-friendly structured results with Message IDs, Thread IDs, and clickable Gmail web interface URLs for each found message.
+        Includes pagination token if more results are available.
+    """
+
+    service = get_service()
+
+    request_params = {"userId": "me", "q": query, "maxResults": page_size}
+
+    try:
+        if page_token:
+            request_params["pageToken"] = page_token
+            logger.info("[search_gmail_messages] Using page_token for pagination")
+
+        response = await asyncio.to_thread(
+            service.users().messages().list(**request_params).execute
+        )
+
+        if response is None:
+            logger.warning("[search_gmail_messages] Null response from Gmail API")
+            return f"No response received from Gmail API for query: '{query}'"
+
+        messages = response.get("messages", [])
+        if messages is None:
+            messages = []
+
+        next_page_token = response.get("nextPageToken")
+
+        formatted_output = _format_gmail_results_plain(messages, query, next_page_token)
+
+        logger.info(f"[search_gmail_messages] Found {len(messages)} messages")
+        if next_page_token:
+            logger.info(
+                "[search_gmail_messages] More results available (next_page_token present)"
+            )
+        return {"success": True, "output": formatted_output}
+    except HttpError as error:
+        logger.error(f"Gmail API error: {error}")
+        return {"success": False, "error": str(error)}
+    except Exception as error:
+        logger.error(f"Unexpected error: {error}")
+        return {"success": False, "error": str(error)}
+
+
 @communication_server.tool()
 async def send_email_tool(
     recipient_id: str, subject: str, message: str
 ) -> dict[str, Any]:
     """Send an email via Gmail.
+
 
     Args:
         recipient_id: Recipient's email address
@@ -63,7 +214,7 @@ async def send_email_tool(
         message: Email body content (plain text or HTML)
 
     Returns:
-        Dict with 'success' boolean, 'message_id' if successful, or 'error' message
+        Dict with 'success' boolean, 'message_id' if successful
     """
     try:
         service = get_service()
@@ -323,7 +474,7 @@ async def create_draft_tool(
         message: Email body content (plain text or HTML)
 
     Returns:
-        Dict with 'success' boolean, 'draft_id' if successful, or 'error' message
+        Dict with 'success' boolean, 'draft_id' if successful
 
     Note:
         Use this when user wants to draft an email for later review.
@@ -445,7 +596,7 @@ async def create_label_tool(name: str) -> dict[str, Any]:
         name: The name of the new label to create
 
     Returns:
-        Dict with 'success' boolean, 'label_id' and 'name' if successful, or 'error' message
+        Dict with 'success' boolean, 'label_id' and 'name' if successful
     """
     try:
         service = get_service()
@@ -774,7 +925,7 @@ async def create_folder_tool(name: str) -> dict[str, Any]:
         name: The name of the new folder to create
 
     Returns:
-        Dict with 'success' boolean, 'folder_id' and 'name' if successful, or 'error' message
+        Dict with 'success' boolean, 'folder_id' and 'name' if successful
 
     Note:
         In Gmail, folders are implemented as labels with special handling.
@@ -885,7 +1036,7 @@ async def rename_labels_tool(label_id: str, new_name: str) -> dict[str, Any]:
         new_name: The new name for the label
 
     Returns:
-        Dict with 'success' boolean, 'label_id' and 'name' if successful, or 'error' message
+        Dict with 'success' boolean, 'label_id' and 'name' if successful
     """
     try:
         service = get_service()
@@ -997,7 +1148,7 @@ async def batch_archive_tool(query: str, max_emails: int = 100) -> dict[str, Any
         max_emails: Maximum number of emails to archive (default: 100)
 
     Returns:
-        Dict with 'success' boolean, 'archived_count', or 'error' message
+        Dict with 'success' boolean, 'archived_count'
 
     Note:
         Use Gmail search syntax to specify which emails to archive.
