@@ -9,6 +9,7 @@ from config.settings import (
     DB_PATH,
     DEFAULT_THREAD_ID,
     planning_config,
+    content_config,
 )
 from core.graph import build_graph
 from utils.checkpointer import CleaningAsyncSqliteSaver
@@ -31,6 +32,16 @@ async def main():
         planning_tools = await planning_client.get_tools()
         logger.info(f"✅ Planning Tools: {len(planning_tools)}")
         tool_sets = {"communication": communication_tools, "planning": planning_tools}
+
+        content_client = MultiServerMCPClient(content_config)
+        content_tools = await content_client.get_tools()
+        logger.info(f"✅ Content Tools: {len(content_tools)}")
+
+        tool_sets = {
+            "communication": communication_tools,
+            "planning": planning_tools,
+            "content": content_tools,
+        }
 
         async with aiosqlite.connect(str(DB_PATH)) as connection:
             checkpointer = CleaningAsyncSqliteSaver(connection)

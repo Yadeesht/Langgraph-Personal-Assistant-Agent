@@ -16,9 +16,9 @@ class State(TypedDict):
 class Route(BaseModel):
     """Routing decision for the supervisor"""
 
-    step: Literal["communication_agent", "planning_agent", "FINISH"] = Field(
-        description="The next agent to route to, or FINISH if done"
-    )
+    step: Literal[
+        "communication_agent", "planning_agent", "content_agent", "FINISH"
+    ] = Field(description="The next agent to route to, or FINISH if done")
 
 
 def route_after_supervisor(state: State):

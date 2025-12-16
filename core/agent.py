@@ -104,7 +104,9 @@ def route_after_human(state: State):
     last_ai_msg = messages[-2].name
 
     if last_ai_msg.lower() == "communication_agent":  # case sensitive fix
-        return last_ai_msg
+        return last_ai_msg.lower()
     elif last_ai_msg.lower() == "planning_agent":
-        return last_ai_msg
+        return last_ai_msg.lower()
+    elif last_ai_msg.lower() == "content_agent":
+        return last_ai_msg.lower()
     return END

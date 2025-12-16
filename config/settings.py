@@ -9,6 +9,7 @@ BASE_DIR = Path(__file__).parent.parent
 DB_PATH = BASE_DIR / "data" / "memory.db"
 COMMUNICATION_SERVER = BASE_DIR / "MCP" / "core" / "communication_server.py"
 PLANNING_SERVER = BASE_DIR / "MCP" / "core" / "planning_server.py"
+CONTENT_SERVER = BASE_DIR / "MCP" / "core" / "content_server.py"
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
@@ -36,6 +37,14 @@ planning_config = {
         "transport": "stdio",
         "command": "python",
         "args": [str(PLANNING_SERVER)],
+    }
+}
+
+content_config = {
+    "content": {
+        "transport": "stdio",
+        "command": "python",
+        "args": [str(CONTENT_SERVER)],
     }
 }
 

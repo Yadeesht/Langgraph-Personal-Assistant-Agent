@@ -6,6 +6,7 @@ from config.prompts import (
     COMMUNICATION_SYSTEM_PROMPT,
     PLANNING_SYSTEM_PROMPT,
     SUPERVISOR_SYSTEM_PROMPT,
+    CONTENT_SYSTEM_PROMPT,
 )
 from core.agent import agent_node_factory, human_node, route_after_human
 from core.llm import build_llm_with_tools
@@ -19,9 +20,11 @@ logger = setup_logger(__name__)
 def build_graph(tool_sets, checkpointer):
     communication_tools = tool_sets["communication"]
     planning_tools = tool_sets["planning"]
+    content_tools = tool_sets["content"]
 
     communication_llm = build_llm_with_tools(communication_tools)
     planning_llm = build_llm_with_tools(planning_tools)
+    content_llm = build_llm_with_tools(tools=content_tools)
     supervisor_llm = build_llm_with_tools([])
 
     communication_agent_node = agent_node_factory(
@@ -29,6 +32,11 @@ def build_graph(tool_sets, checkpointer):
     )
     planning_agent_node = agent_node_factory(
         planning_llm, PLANNING_SYSTEM_PROMPT, "planning Agent"
+    )
+    content_agent_node = agent_node_factory(
+        llm_with_tools=content_llm,
+        system_prompt=CONTENT_SYSTEM_PROMPT,
+        agent_name="content Agent",
     )
 
     def supervisor_node(state: State):
@@ -97,6 +105,7 @@ def build_graph(tool_sets, checkpointer):
     builder.add_node("supervisor", supervisor_node)
     builder.add_node("communication_agent", communication_agent_node)
     builder.add_node("planning_agent", planning_agent_node)
+    builder.add_node("content_agent", content_agent_node)
     builder.add_node("human_node", human_node)
 
     builder.add_node(
@@ -107,6 +116,10 @@ def build_graph(tool_sets, checkpointer):
         "planning_tools",
         ToolNode(tools=planning_tools, handle_tool_errors=True),
     )
+    builder.add_node(
+        "content_tools",
+        ToolNode(tools=content_tools, handle_tool_errors=True),
+    )
 
     builder.add_edge(START, "supervisor")
 
@@ -116,6 +129,7 @@ def build_graph(tool_sets, checkpointer):
         {
             "communication_agent": "communication_agent",
             "planning_agent": "planning_agent",
+            "content_agent": "content_agent",
             "FINISH": END,
         },
     )
@@ -144,11 +158,23 @@ def build_graph(tool_sets, checkpointer):
     builder.add_edge("planning_tools", "planning_agent")
 
     builder.add_conditional_edges(
+        "content_agent",
+        internal_agent_route,
+        {
+            "tools": "content_tools",
+            "supervisor": "supervisor",
+            "ASK": "human_node",
+        },
+    )
+    builder.add_edge("content_tools", "content_agent")
+
+    builder.add_conditional_edges(
         "human_node",
         route_after_human,
         {
             "communication_agent": "communication_agent",
             "planning_agent": "planning_agent",
+            "content_agent": "content_agent",
             END: END,
         },
     )
