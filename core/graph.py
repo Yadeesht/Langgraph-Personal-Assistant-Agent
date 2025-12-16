@@ -43,7 +43,7 @@ def build_graph(tool_sets, checkpointer):
 
         last_messages = trim_messages(
             state["messages"],
-            max_tokens=100090,
+            max_tokens=80000,
             strategy="last",
             token_counter=count_tokens,
             include_system=True,
