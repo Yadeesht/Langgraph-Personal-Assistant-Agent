@@ -18,7 +18,9 @@ class Route(BaseModel):
 
     step: Literal[
         "communication_agent", "planning_agent", "content_agent", "FINISH"
-    ] = Field(description="The next agent to route to, or FINISH if done")
+    ] = Field(
+        description="The next agent to route to, or FINISH if done no other response other than these is allowed"
+    )
 
 
 def route_after_supervisor(state: State):
