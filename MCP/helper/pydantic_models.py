@@ -1095,5 +1095,105 @@ class CreateSheetResponse(BaseModel):
 
     status: str
     message: str
+    error: Optional[str] = None
+
+
+# ========================= Google Forms Models =================================
+
+
+class CreateFormRequest(BaseModel):
+    """Create form request"""
+
+    title: str = Field(..., min_length=1, max_length=255, description="Form title")
+    description: Optional[str] = Field(
+        None, max_length=4096, description="Form description"
+    )
+    document_title: Optional[str] = Field(
+        None, max_length=255, description="Document title (browser tab)"
+    )
+
+
+class CreateFormResponse(BaseModel):
+    """Create form response"""
+
+    status: str
+    message: str
+    form_id: Optional[str] = None
+    edit_url: Optional[str] = None
+    responder_url: Optional[str] = None
+    error: Optional[str] = None
+
+
+class GetFormRequest(BaseModel):
+    """Get form request"""
+
+    user_google_email: str = Field(..., description="User's Google email")
+    form_id: str = Field(..., min_length=1, description="Form ID")
+
+
+class GetFormResponse(BaseModel):
+    """Get form response"""
+
+    status: str
+    message: str
+    error: Optional[str] = None
+
+
+class SetPublishSettingsRequest(BaseModel):
+    """Set publish settings request"""
+
+    form_id: str = Field(..., min_length=1, description="Form ID")
+    publish_as_template: bool = Field(False, description="Publish as template")
+    require_authentication: bool = Field(False, description="Require authentication")
+
+
+class SetPublishSettingsResponse(BaseModel):
+    """Set publish settings response"""
+
+    status: str
+    message: str
+    error: Optional[str] = None
+
+
+class GetFormResponseRequest(BaseModel):
+    """Get form response request"""
+
+    form_id: str = Field(..., min_length=1, description="Form ID")
+    response_id: str = Field(..., min_length=1, description="Response ID")
+
+
+class GetFormResponseResponse(BaseModel):
+    """Get form response response"""
+
+    status: str
+    message: str
+    error: Optional[str] = None
+
+
+class ListFormResponsesRequest(BaseModel):
+    """List form responses request"""
+
+    form_id: str = Field(..., min_length=1, description="Form ID")
+    page_size: int = Field(10, ge=1, le=100, description="Maximum number of responses")
+    page_token: Optional[str] = Field(None, description="Pagination token")
+
+
+class ListFormResponsesResponse(BaseModel):
+    """List form responses response"""
+
+    status: str
+    message: str
+    error: Optional[str] = None
+    """Create sheet request"""
+
+    spreadsheet_id: str = Field(..., min_length=1, description="Spreadsheet ID")
+    sheet_name: str = Field(..., min_length=1, max_length=100, description="Sheet name")
+
+
+class CreateSheetResponse(BaseModel):
+    """Create sheet response"""
+
+    status: str
+    message: str
     sheet_id: Optional[int] = None
     error: Optional[str] = None
