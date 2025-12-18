@@ -12,6 +12,22 @@ from MCP.auth.oauth_config import is_stateless_mode
 from MCP.auth.service_decoder import get_google_service
 from MCP.core.server_init import content_server
 from MCP.helper.utils import extract_office_xml_text
+from MCP.helper.pydantic_models import (
+    SearchDriveFilesRequest,
+    SearchDriveFilesResponse,
+    GetDriveFileContentRequest,
+    GetDriveFileContentResponse,
+    ListDriveItemsRequest,
+    ListDriveItemsResponse,
+    CreateDriveFileRequest,
+    CreateDriveFileResponse,
+    GetDriveFilePermissionsRequest,
+    GetDriveFilePermissionsResponse,
+    CheckDriveFilePublicAccessRequest,
+    CheckDriveFilePublicAccessResponse,
+    UpdateDriveFileRequest,
+    UpdateDriveFileResponse,
+)
 from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 
 logger = logging.getLogger(__name__)
@@ -244,47 +260,80 @@ async def search_drive_files(
     Returns:
         str: A formatted list of found files/folders with their details (ID, name, type, size, modified time, link).
     """
+    # Validate input parameters
+    try:
+        request = SearchDriveFilesRequest(
+            query=query,
+            page_size=page_size,
+            drive_id=drive_id,
+            include_items_from_all_drives=include_items_from_all_drives,
+            corpora=corpora,
+        )
+    except Exception as e:
+        error_msg = f"Invalid parameters: {str(e)}"
+        logger.error(f"[search_drive_files] {error_msg}")
+        return SearchDriveFilesResponse(
+            status="error", message="", error=error_msg
+        ).model_dump_json(indent=2)
 
     service = get_service()
 
-    # Check if the query looks like a structured Drive query or free text
-    # Look for Drive API operators and structured query patterns
-    is_structured_query = any(pattern.search(query) for pattern in DRIVE_QUERY_PATTERNS)
-
-    if is_structured_query:
-        final_query = query
-        logger.info(
-            f"[search_drive_files] Using structured query as-is: '{final_query}'"
-        )
-    else:
-        # For free text queries, wrap in fullText contains
-        escaped_query = query.replace("'", "\\'")
-        final_query = f"fullText contains '{escaped_query}'"
-        logger.info(
-            f"[search_drive_files] Reformatting free text query '{query}' to '{final_query}'"
+    try:
+        # Check if the query looks like a structured Drive query or free text
+        # Look for Drive API operators and structured query patterns
+        is_structured_query = any(
+            pattern.search(request.query) for pattern in DRIVE_QUERY_PATTERNS
         )
 
-    list_params = build_drive_list_params(
-        query=final_query,
-        page_size=page_size,
-        drive_id=drive_id,
-        include_items_from_all_drives=include_items_from_all_drives,
-        corpora=corpora,
-    )
+        if is_structured_query:
+            final_query = request.query
+            logger.info(
+                f"[search_drive_files] Using structured query as-is: '{final_query}'"
+            )
+        else:
+            # For free text queries, wrap in fullText contains
+            escaped_query = request.query.replace("'", "\\'")
+            final_query = f"fullText contains '{escaped_query}'"
+            logger.info(
+                f"[search_drive_files] Reformatting free text query '{request.query}' to '{final_query}'"
+            )
 
-    results = await asyncio.to_thread(service.files().list(**list_params).execute)
-    files = results.get("files", [])
-    if not files:
-        return f"No files found for '{query}'."
-
-    formatted_files_text_parts = [f"Found {len(files)} files matching '{query}':"]
-    for item in files:
-        size_str = f", Size: {item.get('size', 'N/A')}" if "size" in item else ""
-        formatted_files_text_parts.append(
-            f'- Name: "{item["name"]}" (ID: {item["id"]}, Type: {item["mimeType"]}{size_str}, Modified: {item.get("modifiedTime", "N/A")}) Link: {item.get("webViewLink", "#")}'
+        list_params = build_drive_list_params(
+            query=final_query,
+            page_size=request.page_size,
+            drive_id=request.drive_id,
+            include_items_from_all_drives=request.include_items_from_all_drives,
+            corpora=request.corpora,
         )
-    text_output = "\n".join(formatted_files_text_parts)
-    return text_output
+
+        results = await asyncio.to_thread(service.files().list(**list_params).execute)
+        files = results.get("files", [])
+        if not files:
+            message = f"No files found for '{request.query}'."
+            return SearchDriveFilesResponse(
+                status="success", message=message
+            ).model_dump_json(indent=2)
+
+        formatted_files_text_parts = [
+            f"Found {len(files)} files matching '{request.query}':"
+        ]
+        for item in files:
+            size_str = f", Size: {item.get('size', 'N/A')}" if "size" in item else ""
+            formatted_files_text_parts.append(
+                f'- Name: "{item["name"]}" (ID: {item["id"]}, Type: {item["mimeType"]}{size_str}, Modified: {item.get("modifiedTime", "N/A")}) Link: {item.get("webViewLink", "#")}'
+            )
+        message = "\n".join(formatted_files_text_parts)
+
+        return SearchDriveFilesResponse(
+            status="success", message=message
+        ).model_dump_json(indent=2)
+
+    except Exception as error:
+        error_msg = f"Error searching drive files: {str(error)}"
+        logger.error(f"[search_drive_files] {error_msg}")
+        return SearchDriveFilesResponse(
+            status="error", message="", error=error_msg
+        ).model_dump_json(indent=2)
 
 
 @content_server.tool()
@@ -306,50 +355,70 @@ async def get_drive_file_content(
     Returns:
         str: The file content as plain text with metadata header.
     """
-    logger.info(f"[get_drive_file_content] Invoked. File ID: '{file_id}'")
+    # Validate input parameters
+    try:
+        request = GetDriveFileContentRequest(file_id=file_id)
+    except Exception as e:
+        error_msg = f"Invalid parameters: {str(e)}"
+        logger.error(f"[get_drive_file_content] {error_msg}")
+        return GetDriveFileContentResponse(
+            status="error", message="", error=error_msg
+        ).model_dump_json(indent=2)
+
+    logger.info(f"[get_drive_file_content] Invoked. File ID: '{request.file_id}'")
     service = get_service()
 
-    resolved_file_id, file_metadata = await resolve_drive_item(
-        service,
-        file_id,
-        extra_fields="name, webViewLink",
-    )
-    file_id = resolved_file_id
-    mime_type = file_metadata.get("mimeType", "")
-    file_name = file_metadata.get("name", "Unknown File")
-    export_mime_type = {
-        "application/vnd.google-apps.document": "text/plain",
-        "application/vnd.google-apps.spreadsheet": "text/csv",
-        "application/vnd.google-apps.presentation": "text/plain",
-    }.get(mime_type)
+    try:
+        resolved_file_id, file_metadata = await resolve_drive_item(
+            service,
+            request.file_id,
+            extra_fields="name, webViewLink",
+        )
+        file_id = resolved_file_id
+        mime_type = file_metadata.get("mimeType", "")
+        file_name = file_metadata.get("name", "Unknown File")
+        export_mime_type = {
+            "application/vnd.google-apps.document": "text/plain",
+            "application/vnd.google-apps.spreadsheet": "text/csv",
+            "application/vnd.google-apps.presentation": "text/plain",
+        }.get(mime_type)
 
-    request_obj = (
-        service.files().export_media(fileId=file_id, mimeType=export_mime_type)
-        if export_mime_type
-        else service.files().get_media(fileId=file_id)
-    )
-    fh = io.BytesIO()
-    downloader = MediaIoBaseDownload(fh, request_obj)
-    loop = asyncio.get_event_loop()
-    done = False
-    while not done:
-        status, done = await loop.run_in_executor(None, downloader.next_chunk)
+        request_obj = (
+            service.files().export_media(fileId=file_id, mimeType=export_mime_type)
+            if export_mime_type
+            else service.files().get_media(fileId=file_id)
+        )
+        fh = io.BytesIO()
+        downloader = MediaIoBaseDownload(fh, request_obj)
+        loop = asyncio.get_event_loop()
+        done = False
+        while not done:
+            status, done = await loop.run_in_executor(None, downloader.next_chunk)
 
-    file_content_bytes = fh.getvalue()
+        file_content_bytes = fh.getvalue()
 
-    # Attempt Office XML extraction only for actual Office XML files
-    office_mime_types = {
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    }
+        # Attempt Office XML extraction only for actual Office XML files
+        office_mime_types = {
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        }
 
-    if mime_type in office_mime_types:
-        office_text = extract_office_xml_text(file_content_bytes, mime_type)
-        if office_text:
-            body_text = office_text
+        if mime_type in office_mime_types:
+            office_text = extract_office_xml_text(file_content_bytes, mime_type)
+            if office_text:
+                body_text = office_text
+            else:
+                # Fallback: try UTF-8; otherwise flag binary
+                try:
+                    body_text = file_content_bytes.decode("utf-8")
+                except UnicodeDecodeError:
+                    body_text = (
+                        f"[Binary or unsupported text encoding for mimeType '{mime_type}' - "
+                        f"{len(file_content_bytes)} bytes]"
+                    )
         else:
-            # Fallback: try UTF-8; otherwise flag binary
+            # For non-Office files (including Google native files), try UTF-8 decode directly
             try:
                 body_text = file_content_bytes.decode("utf-8")
             except UnicodeDecodeError:
@@ -357,22 +426,24 @@ async def get_drive_file_content(
                     f"[Binary or unsupported text encoding for mimeType '{mime_type}' - "
                     f"{len(file_content_bytes)} bytes]"
                 )
-    else:
-        # For non-Office files (including Google native files), try UTF-8 decode directly
-        try:
-            body_text = file_content_bytes.decode("utf-8")
-        except UnicodeDecodeError:
-            body_text = (
-                f"[Binary or unsupported text encoding for mimeType '{mime_type}' - "
-                f"{len(file_content_bytes)} bytes]"
-            )
 
-    # Assemble response
-    header = (
-        f'File: "{file_name}" (ID: {file_id}, Type: {mime_type})\n'
-        f"Link: {file_metadata.get('webViewLink', '#')}\n\n--- CONTENT ---\n"
-    )
-    return header + body_text
+        # Assemble response
+        header = (
+            f'File: "{file_name}" (ID: {file_id}, Type: {mime_type})\n'
+            f"Link: {file_metadata.get('webViewLink', '#')}\n\n--- CONTENT ---\n"
+        )
+        message = header + body_text
+
+        return GetDriveFileContentResponse(
+            status="success", message=message
+        ).model_dump_json(indent=2)
+
+    except Exception as error:
+        error_msg = f"Error getting drive file content: {str(error)}"
+        logger.error(f"[get_drive_file_content] {error_msg}")
+        return GetDriveFileContentResponse(
+            status="error", message="", error=error_msg
+        ).model_dump_json(indent=2)
 
 
 @content_server.tool()
@@ -398,34 +469,65 @@ async def list_drive_items(
     Returns:
         str: A formatted list of files/folders in the specified folder.
     """
-    service = get_service()
-
-    logger.info(f"[list_drive_items] Invoked. Folder ID: '{folder_id}'")
-
-    resolved_folder_id = await resolve_folder_id(service, folder_id)
-    final_query = f"'{resolved_folder_id}' in parents and trashed=false"
-
-    list_params = build_drive_list_params(
-        query=final_query,
-        page_size=page_size,
-        drive_id=drive_id,
-        include_items_from_all_drives=include_items_from_all_drives,
-        corpora=corpora,
-    )
-
-    results = await asyncio.to_thread(service.files().list(**list_params).execute)
-    files = results.get("files", [])
-    if not files:
-        return f"No items found in folder '{folder_id}'."
-
-    formatted_items_text_parts = [f"Found {len(files)} items in folder '{folder_id}' :"]
-    for item in files:
-        size_str = f", Size: {item.get('size', 'N/A')}" if "size" in item else ""
-        formatted_items_text_parts.append(
-            f'- Name: "{item["name"]}" (ID: {item["id"]}, Type: {item["mimeType"]}{size_str}, Modified: {item.get("modifiedTime", "N/A")}) Link: {item.get("webViewLink", "#")}'
+    # Validate input parameters
+    try:
+        request = ListDriveItemsRequest(
+            folder_id=folder_id,
+            page_size=page_size,
+            drive_id=drive_id,
+            include_items_from_all_drives=include_items_from_all_drives,
+            corpora=corpora,
         )
-    text_output = "\n".join(formatted_items_text_parts)
-    return text_output
+    except Exception as e:
+        error_msg = f"Invalid parameters: {str(e)}"
+        logger.error(f"[list_drive_items] {error_msg}")
+        return ListDriveItemsResponse(
+            status="error", message="", error=error_msg
+        ).model_dump_json(indent=2)
+
+    service = get_service()
+    logger.info(f"[list_drive_items] Invoked. Folder ID: '{request.folder_id}'")
+
+    try:
+        resolved_folder_id = await resolve_folder_id(service, request.folder_id)
+        final_query = f"'{resolved_folder_id}' in parents and trashed=false"
+
+        list_params = build_drive_list_params(
+            query=final_query,
+            page_size=request.page_size,
+            drive_id=request.drive_id,
+            include_items_from_all_drives=request.include_items_from_all_drives,
+            corpora=request.corpora,
+        )
+
+        results = await asyncio.to_thread(service.files().list(**list_params).execute)
+        files = results.get("files", [])
+        if not files:
+            message = f"No items found in folder '{request.folder_id}'."
+            return ListDriveItemsResponse(
+                status="success", message=message
+            ).model_dump_json(indent=2)
+
+        formatted_items_text_parts = [
+            f"Found {len(files)} items in folder '{request.folder_id}' :"
+        ]
+        for item in files:
+            size_str = f", Size: {item.get('size', 'N/A')}" if "size" in item else ""
+            formatted_items_text_parts.append(
+                f'- Name: "{item["name"]}" (ID: {item["id"]}, Type: {item["mimeType"]}{size_str}, Modified: {item.get("modifiedTime", "N/A")}) Link: {item.get("webViewLink", "#")}'
+            )
+        message = "\n".join(formatted_items_text_parts)
+
+        return ListDriveItemsResponse(
+            status="success", message=message
+        ).model_dump_json(indent=2)
+
+    except Exception as error:
+        error_msg = f"Error listing drive items: {str(error)}"
+        logger.error(f"[list_drive_items] {error_msg}")
+        return ListDriveItemsResponse(
+            status="error", message="", error=error_msg
+        ).model_dump_json(indent=2)
 
 
 @content_server.tool()
@@ -450,23 +552,42 @@ async def create_drive_file(
     Returns:
         str: Confirmation message of the successful file creation with file link.
     """
+    # Validate input parameters
+    try:
+        request = CreateDriveFileRequest(
+            file_name=file_name,
+            content=content,
+            folder_id=folder_id,
+            mime_type=mime_type,
+            fileUrl=fileUrl,
+        )
+    except Exception as e:
+        error_msg = f"Invalid parameters: {str(e)}"
+        logger.error(f"[create_drive_file] {error_msg}")
+        return CreateDriveFileResponse(
+            status="error", message="", error=error_msg
+        ).model_dump_json(indent=2)
+
     service = get_service()
-    logger.info(f"[create_drive_file] Invoked. File: {file_name}, URL: {fileUrl}")
+    logger.info(
+        f"[create_drive_file] Invoked. File: {request.file_name}, URL: {request.fileUrl}"
+    )
 
-    if not content and not fileUrl:
-        raise Exception("You must provide either 'content' or 'fileUrl'.")
+    try:
+        if not request.content and not request.fileUrl:
+            raise Exception("You must provide either 'content' or 'fileUrl'.")
 
-    resolved_folder_id = await resolve_folder_id(service, folder_id)
+        resolved_folder_id = await resolve_folder_id(service, request.folder_id)
 
-    file_metadata = {
-        "name": file_name,
-        "parents": [resolved_folder_id],
-        "mimeType": mime_type,
-    }
+        file_metadata = {
+            "name": request.file_name,
+            "parents": [resolved_folder_id],
+            "mimeType": request.mime_type,
+        }
 
-    # Handle fileUrl if provided
-    if fileUrl:
-        parsed_url = urlparse(fileUrl)
+        # Handle fileUrl if provided
+        if request.fileUrl:
+            parsed_url = urlparse(request.fileUrl)
 
         # Handle file:// URLs
         if parsed_url.scheme == "file":
@@ -499,7 +620,7 @@ async def create_drive_file(
 
             media = MediaIoBaseUpload(
                 io.BytesIO(file_data),
-                mimetype=mime_type,
+                mimetype=request.mime_type,
                 resumable=True,
                 chunksize=UPLOAD_CHUNK_SIZE_BYTES,
             )
@@ -517,14 +638,14 @@ async def create_drive_file(
 
         # Handle HTTP/HTTPS URLs
         elif parsed_url.scheme in ("http", "https"):
-            logger.info(f"[create_drive_file] Fetching from URL: {fileUrl}")
+            logger.info(f"[create_drive_file] Fetching from URL: {request.fileUrl}")
 
             # Always use in-memory approach (works in both modes)
             async with httpx.AsyncClient(follow_redirects=True, timeout=60.0) as client:
-                resp = await client.get(fileUrl)
+                resp = await client.get(request.fileUrl)
                 if resp.status_code != 200:
                     raise Exception(
-                        f"Failed to fetch file from URL: {fileUrl} (status {resp.status_code})"
+                        f"Failed to fetch file from URL: {request.fileUrl} (status {resp.status_code})"
                     )
 
                 file_data = await resp.aread()
@@ -536,14 +657,16 @@ async def create_drive_file(
                 # Try to get MIME type from Content-Type header
                 content_type = resp.headers.get("Content-Type")
                 if content_type and content_type != "application/octet-stream":
-                    mime_type = content_type
-                    file_metadata["mimeType"] = mime_type
-                    logger.info(f"[create_drive_file] Using MIME type: {mime_type}")
+                    request.mime_type = content_type
+                    file_metadata["mimeType"] = request.mime_type
+                    logger.info(
+                        f"[create_drive_file] Using MIME type: {request.mime_type}"
+                    )
 
             # Upload using in-memory buffer
             media = MediaIoBaseUpload(
                 io.BytesIO(file_data),
-                mimetype=mime_type,
+                mimetype=request.mime_type,
                 resumable=True,
                 chunksize=UPLOAD_CHUNK_SIZE_BYTES,
             )
@@ -569,35 +692,46 @@ async def create_drive_file(
                 f"Only file:// (local environment), http://, and https:// are supported."
             )
 
-    # Handle direct content
-    elif content:
-        file_data = content.encode("utf-8")
-        media = MediaIoBaseUpload(
-            io.BytesIO(file_data),
-            mimetype=mime_type,
-            resumable=True,
-            chunksize=UPLOAD_CHUNK_SIZE_BYTES,
-        )
-
-        created_file = await asyncio.to_thread(
-            service.files()
-            .create(
-                body=file_metadata,
-                media_body=media,
-                fields="id, name, webViewLink",
-                supportsAllDrives=True,
+        # Handle direct content
+        if request.content:
+            file_data = request.content.encode("utf-8")
+            media = MediaIoBaseUpload(
+                io.BytesIO(file_data),
+                mimetype=request.mime_type,
+                resumable=True,
+                chunksize=UPLOAD_CHUNK_SIZE_BYTES,
             )
-            .execute
+
+            created_file = await asyncio.to_thread(
+                service.files()
+                .create(
+                    body=file_metadata,
+                    media_body=media,
+                    fields="id, name, webViewLink",
+                    supportsAllDrives=True,
+                )
+                .execute
+            )
+
+        link = created_file.get("webViewLink", "No link available")
+        logger.info(f"✅ Successfully created file. Link: {link}")
+
+        message = (
+            f"✅ Successfully created file '{created_file.get('name', request.file_name)}' "
+            f"(ID: {created_file.get('id', 'N/A')}) in folder '{request.folder_id}' "
+            f" Link: {link}"
         )
 
-    link = created_file.get("webViewLink", "No link available")
-    logger.info(f"✅ Successfully created file. Link: {link}")
+        return CreateDriveFileResponse(
+            status="success", message=message
+        ).model_dump_json(indent=2)
 
-    return (
-        f"✅ Successfully created file '{created_file.get('name', file_name)}' "
-        f"(ID: {created_file.get('id', 'N/A')}) in folder '{folder_id}' "
-        f" Link: {link}"
-    )
+    except Exception as error:
+        error_msg = f"Error creating drive file: {str(error)}"
+        logger.error(f"[create_drive_file] {error_msg}")
+        return CreateDriveFileResponse(
+            status="error", message="", error=error_msg
+        ).model_dump_json(indent=2)
 
 
 @content_server.tool()
@@ -613,14 +747,23 @@ async def get_drive_file_permissions(
     Returns:
         str: Detailed file metadata including sharing status and URLs.
     """
+    # Validate input parameters
+    try:
+        request = GetDriveFilePermissionsRequest(file_id=file_id)
+    except Exception as e:
+        error_msg = f"Invalid parameters: {str(e)}"
+        logger.error(f"[get_drive_file_permissions] {error_msg}")
+        return GetDriveFilePermissionsResponse(
+            status="error", message="", error=error_msg
+        ).model_dump_json(indent=2)
+
     service = get_service()
 
-    logger.info(f"[get_drive_file_permissions] Checking file {file_id} ")
-
-    resolved_file_id, _ = await resolve_drive_item(service, file_id)
-    file_id = resolved_file_id
+    logger.info(f"[get_drive_file_permissions] Checking file {request.file_id} ")
 
     try:
+        resolved_file_id, _ = await resolve_drive_item(service, request.file_id)
+        file_id = resolved_file_id
         # Get comprehensive file metadata including permissions
         file_metadata = await asyncio.to_thread(
             service.files()
@@ -709,11 +852,18 @@ async def get_drive_file_permissions(
                 ]
             )
 
-        return "\n".join(output_parts)
+        message = "\n".join(output_parts)
 
-    except Exception as e:
-        logger.error(f"Error getting file permissions: {e}")
-        return f"Error getting file permissions: {e}"
+        return GetDriveFilePermissionsResponse(
+            status="success", message=message
+        ).model_dump_json(indent=2)
+
+    except Exception as error:
+        error_msg = f"Error getting file permissions: {str(error)}"
+        logger.error(f"[get_drive_file_permissions] {error_msg}")
+        return GetDriveFilePermissionsResponse(
+            status="error", message="", error=error_msg
+        ).model_dump_json(indent=2)
 
 
 @content_server.tool()
@@ -729,82 +879,109 @@ async def check_drive_file_public_access(
     Returns:
         str: Information about the file's sharing status and whether it can be used in Google Docs.
     """
+    # Validate input parameters
+    try:
+        request = CheckDriveFilePublicAccessRequest(file_name=file_name)
+    except Exception as e:
+        error_msg = f"Invalid parameters: {str(e)}"
+        logger.error(f"[check_drive_file_public_access] {error_msg}")
+        return CheckDriveFilePublicAccessResponse(
+            status="error", message="", error=error_msg
+        ).model_dump_json(indent=2)
+
     service = get_service()
 
-    logger.info(f"[check_drive_file_public_access] Searching for {file_name}")
+    logger.info(f"[check_drive_file_public_access] Searching for {request.file_name}")
 
-    # Search for the file
-    escaped_name = file_name.replace("'", "\\'")
-    query = f"name = '{escaped_name}'"
+    try:
+        # Search for the file
+        escaped_name = request.file_name.replace("'", "\\'")
+        query = f"name = '{escaped_name}'"
 
-    list_params = {
-        "q": query,
-        "pageSize": 10,
-        "fields": "files(id, name, mimeType, webViewLink)",
-        "supportsAllDrives": True,
-        "includeItemsFromAllDrives": True,
-    }
+        list_params = {
+            "q": query,
+            "pageSize": 10,
+            "fields": "files(id, name, mimeType, webViewLink)",
+            "supportsAllDrives": True,
+            "includeItemsFromAllDrives": True,
+        }
 
-    results = await asyncio.to_thread(service.files().list(**list_params).execute)
+        results = await asyncio.to_thread(service.files().list(**list_params).execute)
 
-    files = results.get("files", [])
-    if not files:
-        return f"No file found with name '{file_name}'"
+        files = results.get("files", [])
+        if not files:
+            message = f"No file found with name '{request.file_name}'"
+            return CheckDriveFilePublicAccessResponse(
+                status="success", message=message
+            ).model_dump_json(indent=2)
 
-    if len(files) > 1:
-        output_parts = [f"Found {len(files)} files with name '{file_name}':"]
-        for f in files:
-            output_parts.append(f"  - {f['name']} (ID: {f['id']})")
-        output_parts.append("\nChecking the first file...")
-        output_parts.append("")
-    else:
-        output_parts = []
-
-    # Check permissions for the first file
-    file_id = files[0]["id"]
-    resolved_file_id, _ = await resolve_drive_item(service, file_id)
-    file_id = resolved_file_id
-
-    # Get detailed permissions
-    file_metadata = await asyncio.to_thread(
-        service.files()
-        .get(
-            fileId=file_id,
-            fields="id, name, mimeType, permissions, webViewLink, webContentLink, shared",
-            supportsAllDrives=True,
-        )
-        .execute
-    )
-
-    permissions = file_metadata.get("permissions", [])
-    has_public_link = check_public_link_permission(permissions)
-
-    output_parts.extend(
-        [
-            f"File: {file_metadata['name']}",
-            f"ID: {file_id}",
-            f"Type: {file_metadata['mimeType']}",
-            f"Shared: {file_metadata.get('shared', False)}",
-            "",
-        ]
-    )
-
-    if has_public_link:
-        output_parts.extend(
-            [
-                "✅ PUBLIC ACCESS ENABLED - This file can be inserted into Google Docs",
-                f"Use with insert_doc_image_url: {get_drive_image_url(file_id)}",
+        if len(files) > 1:
+            output_parts = [
+                f"Found {len(files)} files with name '{request.file_name}':"
             ]
+            for f in files:
+                output_parts.append(f"  - {f['name']} (ID: {f['id']})")
+            output_parts.append("\nChecking the first file...")
+            output_parts.append("")
+        else:
+            output_parts = []
+
+        # Check permissions for the first file
+        file_id = files[0]["id"]
+        resolved_file_id, _ = await resolve_drive_item(service, file_id)
+        file_id = resolved_file_id
+
+        # Get detailed permissions
+        file_metadata = await asyncio.to_thread(
+            service.files()
+            .get(
+                fileId=file_id,
+                fields="id, name, mimeType, permissions, webViewLink, webContentLink, shared",
+                supportsAllDrives=True,
+            )
+            .execute
         )
-    else:
+
+        permissions = file_metadata.get("permissions", [])
+        has_public_link = check_public_link_permission(permissions)
+
         output_parts.extend(
             [
-                "❌ NO PUBLIC ACCESS - Cannot insert into Google Docs",
-                "Fix: Drive → Share → 'Anyone with the link' → 'Viewer'",
+                f"File: {file_metadata['name']}",
+                f"ID: {file_id}",
+                f"Type: {file_metadata['mimeType']}",
+                f"Shared: {file_metadata.get('shared', False)}",
+                "",
             ]
         )
 
-    return "\n".join(output_parts)
+        if has_public_link:
+            output_parts.extend(
+                [
+                    "✅ PUBLIC ACCESS ENABLED - This file can be inserted into Google Docs",
+                    f"Use with insert_doc_image_url: {get_drive_image_url(file_id)}",
+                ]
+            )
+        else:
+            output_parts.extend(
+                [
+                    "❌ NO PUBLIC ACCESS - Cannot insert into Google Docs",
+                    "Fix: Drive → Share → 'Anyone with the link' → 'Viewer'",
+                ]
+            )
+
+        message = "\n".join(output_parts)
+
+        return CheckDriveFilePublicAccessResponse(
+            status="success", message=message
+        ).model_dump_json(indent=2)
+
+    except Exception as error:
+        error_msg = f"Error checking drive file public access: {str(error)}"
+        logger.error(f"[check_drive_file_public_access] {error_msg}")
+        return CheckDriveFilePublicAccessResponse(
+            status="error", message="", error=error_msg
+        ).model_dump_json(indent=2)
 
 
 @content_server.tool()
@@ -845,137 +1022,177 @@ async def update_drive_file(
     Returns:
         str: Confirmation message with details of the updates applied.
     """
+    # Validate input parameters
+    try:
+        request = UpdateDriveFileRequest(
+            file_id=file_id,
+            name=name,
+            description=description,
+            mime_type=mime_type,
+            add_parents=add_parents,
+            remove_parents=remove_parents,
+            starred=starred,
+            trashed=trashed,
+            writers_can_share=writers_can_share,
+            copy_requires_writer_permission=copy_requires_writer_permission,
+            properties=properties,
+        )
+    except Exception as e:
+        error_msg = f"Invalid parameters: {str(e)}"
+        logger.error(f"[update_drive_file] {error_msg}")
+        return UpdateDriveFileResponse(
+            status="error", message="", error=error_msg
+        ).model_dump_json(indent=2)
+
     service = get_service()
 
-    logger.info(f"[update_drive_file] Updating file {file_id}")
+    logger.info(f"[update_drive_file] Updating file {request.file_id}")
 
-    current_file_fields = (
-        "name, description, mimeType, parents, starred, trashed, webViewLink, "
-        "writersCanShare, copyRequiresWriterPermission, properties"
-    )
-    resolved_file_id, current_file = await resolve_drive_item(
-        service,
-        file_id,
-        extra_fields=current_file_fields,
-    )
-    file_id = resolved_file_id
-
-    # Build the update body with only specified fields
-    update_body = {}
-    if name is not None:
-        update_body["name"] = name
-    if description is not None:
-        update_body["description"] = description
-    if mime_type is not None:
-        update_body["mimeType"] = mime_type
-    if starred is not None:
-        update_body["starred"] = starred
-    if trashed is not None:
-        update_body["trashed"] = trashed
-    if writers_can_share is not None:
-        update_body["writersCanShare"] = writers_can_share
-    if copy_requires_writer_permission is not None:
-        update_body["copyRequiresWriterPermission"] = copy_requires_writer_permission
-    if properties is not None:
-        update_body["properties"] = properties
-
-    async def _resolve_parent_arguments(parent_arg: Optional[str]) -> Optional[str]:
-        if not parent_arg:
-            return None
-        parent_ids = [part.strip() for part in parent_arg.split(",") if part.strip()]
-        if not parent_ids:
-            return None
-
-        resolved_ids = []
-        for parent in parent_ids:
-            resolved_parent = await resolve_folder_id(service, parent)
-            resolved_ids.append(resolved_parent)
-        return ",".join(resolved_ids)
-
-    resolved_add_parents = await _resolve_parent_arguments(add_parents)
-    resolved_remove_parents = await _resolve_parent_arguments(remove_parents)
-
-    # Build query parameters for parent changes
-    query_params = {
-        "fileId": file_id,
-        "supportsAllDrives": True,
-        "fields": "id, name, description, mimeType, parents, starred, trashed, webViewLink, writersCanShare, copyRequiresWriterPermission, properties",
-    }
-
-    if resolved_add_parents:
-        query_params["addParents"] = resolved_add_parents
-    if resolved_remove_parents:
-        query_params["removeParents"] = resolved_remove_parents
-
-    # Only include body if there are updates
-    if update_body:
-        query_params["body"] = update_body
-
-    # Perform the update
-    updated_file = await asyncio.to_thread(
-        service.files().update(**query_params).execute
-    )
-
-    # Build response message
-    output_parts = [
-        f"✅ Successfully updated file: {updated_file.get('name', current_file['name'])}"
-    ]
-    output_parts.append(f"   File ID: {file_id}")
-
-    # Report what changed
-    changes = []
-    if name is not None and name != current_file.get("name"):
-        changes.append(f"   • Name: '{current_file.get('name')}' → '{name}'")
-    if description is not None:
-        old_desc_value = current_file.get("description")
-        new_desc_value = description
-        should_report_change = (old_desc_value or "") != (new_desc_value or "")
-        if should_report_change:
-            old_desc_display = (
-                old_desc_value if old_desc_value not in (None, "") else "(empty)"
-            )
-            new_desc_display = (
-                new_desc_value if new_desc_value not in (None, "") else "(empty)"
-            )
-            changes.append(f"   • Description: {old_desc_display} → {new_desc_display}")
-    if add_parents:
-        changes.append(f"   • Added to folder(s): {add_parents}")
-    if remove_parents:
-        changes.append(f"   • Removed from folder(s): {remove_parents}")
-    current_starred = current_file.get("starred")
-    if starred is not None and starred != current_starred:
-        star_status = "starred" if starred else "unstarred"
-        changes.append(f"   • File {star_status}")
-    current_trashed = current_file.get("trashed")
-    if trashed is not None and trashed != current_trashed:
-        trash_status = "moved to trash" if trashed else "restored from trash"
-        changes.append(f"   • File {trash_status}")
-    current_writers_can_share = current_file.get("writersCanShare")
-    if writers_can_share is not None and writers_can_share != current_writers_can_share:
-        share_status = "can" if writers_can_share else "cannot"
-        changes.append(f"   • Writers {share_status} share the file")
-    current_copy_requires_writer_permission = current_file.get(
-        "copyRequiresWriterPermission"
-    )
-    if (
-        copy_requires_writer_permission is not None
-        and copy_requires_writer_permission != current_copy_requires_writer_permission
-    ):
-        copy_status = (
-            "requires" if copy_requires_writer_permission else "doesn't require"
+    try:
+        current_file_fields = (
+            "name, description, mimeType, parents, starred, trashed, webViewLink, "
+            "writersCanShare, copyRequiresWriterPermission, properties"
         )
-        changes.append(f"   • Copying {copy_status} writer permission")
-    if properties:
-        changes.append(f"   • Updated custom properties: {properties}")
+        resolved_file_id, current_file = await resolve_drive_item(
+            service,
+            file_id,
+            extra_fields=current_file_fields,
+        )
+        file_id = resolved_file_id
 
-    if changes:
+        # Build the update body with only specified fields
+        update_body = {}
+        if name is not None:
+            update_body["name"] = name
+        if description is not None:
+            update_body["description"] = description
+        if mime_type is not None:
+            update_body["mimeType"] = mime_type
+        if starred is not None:
+            update_body["starred"] = starred
+        if trashed is not None:
+            update_body["trashed"] = trashed
+        if writers_can_share is not None:
+            update_body["writersCanShare"] = writers_can_share
+        if copy_requires_writer_permission is not None:
+            update_body["copyRequiresWriterPermission"] = (
+                copy_requires_writer_permission
+            )
+        if properties is not None:
+            update_body["properties"] = properties
+
+        async def _resolve_parent_arguments(parent_arg: Optional[str]) -> Optional[str]:
+            if not parent_arg:
+                return None
+            parent_ids = [
+                part.strip() for part in parent_arg.split(",") if part.strip()
+            ]
+            if not parent_ids:
+                return None
+
+            resolved_ids = []
+            for parent in parent_ids:
+                resolved_parent = await resolve_folder_id(service, parent)
+                resolved_ids.append(resolved_parent)
+            return ",".join(resolved_ids)
+
+        resolved_add_parents = await _resolve_parent_arguments(add_parents)
+        resolved_remove_parents = await _resolve_parent_arguments(remove_parents)
+
+        # Build query parameters for parent changes
+        query_params = {
+            "fileId": file_id,
+            "supportsAllDrives": True,
+            "fields": "id, name, description, mimeType, parents, starred, trashed, webViewLink, writersCanShare, copyRequiresWriterPermission, properties",
+        }
+
+        if resolved_add_parents:
+            query_params["addParents"] = resolved_add_parents
+        if resolved_remove_parents:
+            query_params["removeParents"] = resolved_remove_parents
+
+        # Only include body if there are updates
+        if update_body:
+            query_params["body"] = update_body
+
+        # Perform the update
+        updated_file = await asyncio.to_thread(
+            service.files().update(**query_params).execute
+        )
+
+        # Build response message
+        output_parts = [
+            f"✅ Successfully updated file: {updated_file.get('name', current_file['name'])}"
+        ]
+        output_parts.append(f"   File ID: {file_id}")
+
+        # Report what changed
+        changes = []
+        if name is not None and name != current_file.get("name"):
+            changes.append(f"   • Name: '{current_file.get('name')}' → '{name}'")
+        if description is not None:
+            old_desc_value = current_file.get("description")
+            new_desc_value = description
+            should_report_change = (old_desc_value or "") != (new_desc_value or "")
+            if should_report_change:
+                old_desc_display = (
+                    old_desc_value if old_desc_value not in (None, "") else "(empty)"
+                )
+                new_desc_display = (
+                    new_desc_value if new_desc_value not in (None, "") else "(empty)"
+                )
+                changes.append(
+                    f"   • Description: {old_desc_display} → {new_desc_display}"
+                )
+        if add_parents:
+            changes.append(f"   • Added to folder(s): {add_parents}")
+        if remove_parents:
+            changes.append(f"   • Removed from folder(s): {remove_parents}")
+        current_starred = current_file.get("starred")
+        if starred is not None and starred != current_starred:
+            star_status = "starred" if starred else "unstarred"
+            changes.append(f"   • File {star_status}")
+        current_trashed = current_file.get("trashed")
+        if trashed is not None and trashed != current_trashed:
+            trash_status = "moved to trash" if trashed else "restored from trash"
+            changes.append(f"   • File {trash_status}")
+        current_writers_can_share = current_file.get("writersCanShare")
+        if (
+            writers_can_share is not None
+            and writers_can_share != current_writers_can_share
+        ):
+            share_status = "can" if writers_can_share else "cannot"
+            changes.append(f"   • Writers {share_status} share the file")
+        current_copy_requires_writer_permission = current_file.get(
+            "copyRequiresWriterPermission"
+        )
+        if (
+            copy_requires_writer_permission is not None
+            and copy_requires_writer_permission
+            != current_copy_requires_writer_permission
+        ):
+            copy_status = (
+                "requires" if copy_requires_writer_permission else "doesn't require"
+            )
+            changes.append(f"   • Copying {copy_status} writer permission")
+        if properties:
+            changes.append(f"   • Updated custom properties: {properties}")
+
+        if changes:
+            output_parts.append("")
+            output_parts.append("Changes applied:")
+            output_parts.extend(changes)
+        else:
+            output_parts.append("   (No changes were made)")
+
         output_parts.append("")
-        output_parts.append("Changes applied:")
-        output_parts.extend(changes)
-    else:
-        output_parts.append("   (No changes were made)")
+        output_parts.append(f"View file: {updated_file.get('webViewLink', '#')}")
 
-    output_parts.append("")
-    output_parts.append(f"View file: {updated_file.get('webViewLink', '#')}")
+        return "\n".join(output_parts)
 
-    return "\n".join(output_parts)
+    except Exception as e:
+        error_msg = f"Error updating drive file: {str(e)}"
+        logger.error(f"[update_drive_file] {error_msg}")
+        return UpdateDriveFileResponse(
+            status="error", message="", error=error_msg
+        ).model_dump_json(indent=2)

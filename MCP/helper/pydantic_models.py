@@ -1184,16 +1184,150 @@ class ListFormResponsesResponse(BaseModel):
     status: str
     message: str
     error: Optional[str] = None
+
+
+# ========================= Google Drive Models =================================
+
+
+class SearchDriveFilesRequest(BaseModel):
+    """Search Drive files request"""
+
+    query: str = Field(..., min_length=1, description="Search query string")
+    page_size: int = Field(10, ge=1, le=1000, description="Max number of files")
+    drive_id: Optional[str] = Field(None, description="Shared drive ID")
+    include_items_from_all_drives: bool = Field(
+        True, description="Include items from all drives"
+    )
+    corpora: Optional[str] = Field(
+        None,
+        description="Corpus to query (user, domain, drive, allDrives)",
+        pattern="^(user|domain|drive|allDrives)$",
+    )
+
+
+class SearchDriveFilesResponse(BaseModel):
+    """Search Drive files response"""
+
+    status: str
+    message: str
+    error: Optional[str] = None
+
+
+class GetDriveFileContentRequest(BaseModel):
+    """Get Drive file content request"""
+
+    file_id: str = Field(..., min_length=1, description="Drive file ID")
+
+
+class GetDriveFileContentResponse(BaseModel):
+    """Get Drive file content response"""
+
+    status: str
+    message: str
+    error: Optional[str] = None
+
+
+class ListDriveItemsRequest(BaseModel):
+    """List Drive items request"""
+
+    folder_id: str = Field("root", min_length=1, description="Folder ID")
+    page_size: int = Field(100, ge=1, le=1000, description="Max number of items")
+    drive_id: Optional[str] = Field(None, description="Shared drive ID")
+    include_items_from_all_drives: bool = Field(
+        True, description="Include items from all drives"
+    )
+    corpora: Optional[str] = Field(
+        None,
+        description="Corpus to query (user, domain, drive, allDrives)",
+        pattern="^(user|domain|drive|allDrives)$",
+    )
+
+
+class ListDriveItemsResponse(BaseModel):
+    """List Drive items response"""
+
+    status: str
+    message: str
+    error: Optional[str] = None
+
+
+class CreateDriveFileRequest(BaseModel):
+    """Create Drive file request"""
+
+    file_name: str = Field(..., min_length=1, max_length=255, description="File name")
+    content: Optional[str] = Field(None, description="File content")
+    folder_id: str = Field("root", min_length=1, description="Parent folder ID")
+    mime_type: str = Field("text/plain", description="MIME type")
+    fileUrl: Optional[str] = Field(None, description="URL to fetch content from")
+
+
+class CreateDriveFileResponse(BaseModel):
+    """Create Drive file response"""
+
+    status: str
+    message: str
+    file_id: Optional[str] = None
+    link: Optional[str] = None
+    error: Optional[str] = None
+
+
+class GetDriveFilePermissionsRequest(BaseModel):
+    """Get Drive file permissions request"""
+
+    file_id: str = Field(..., min_length=1, description="Drive file ID")
+
+
+class GetDriveFilePermissionsResponse(BaseModel):
+    """Get Drive file permissions response"""
+
+    status: str
+    message: str
+    error: Optional[str] = None
+
+
+class CheckDriveFilePublicAccessRequest(BaseModel):
+    """Check Drive file public access request"""
+
+    file_name: str = Field(..., min_length=1, description="File name to check")
+
+
+class CheckDriveFilePublicAccessResponse(BaseModel):
+    """Check Drive file public access response"""
+
+    status: str
+    message: str
+    error: Optional[str] = None
+
+
+class UpdateDriveFileRequest(BaseModel):
+    """Update Drive file request"""
+
+    file_id: str = Field(..., min_length=1, description="Drive file ID")
+    name: Optional[str] = Field(None, max_length=255, description="New file name")
+    description: Optional[str] = Field(None, description="File description")
+    mime_type: Optional[str] = Field(None, description="MIME type")
+    add_parents: Optional[str] = Field(
+        None, description="Parent IDs to add (comma-separated)"
+    )
+    remove_parents: Optional[str] = Field(
+        None, description="Parent IDs to remove (comma-separated)"
+    )
+    starred: Optional[bool] = Field(None, description="Star status")
+    trashed: Optional[bool] = Field(None, description="Trash status")
+    writers_can_share: Optional[bool] = Field(None, description="Writers can share")
+    copy_requires_writer_permission: Optional[bool] = Field(
+        None, description="Copy requires writer permission"
+    )
+    properties: Optional[dict] = Field(None, description="Custom properties")
+
+
+class UpdateDriveFileResponse(BaseModel):
+    """Update Drive file response"""
+
+    status: str
+    message: str
+    error: Optional[str] = None
     """Create sheet request"""
 
     spreadsheet_id: str = Field(..., min_length=1, description="Spreadsheet ID")
     sheet_name: str = Field(..., min_length=1, max_length=100, description="Sheet name")
-
-
-class CreateSheetResponse(BaseModel):
-    """Create sheet response"""
-
-    status: str
-    message: str
-    sheet_id: Optional[int] = None
-    error: Optional[str] = None
