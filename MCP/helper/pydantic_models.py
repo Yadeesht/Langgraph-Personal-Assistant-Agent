@@ -1327,6 +1327,470 @@ class UpdateDriveFileResponse(BaseModel):
     status: str
     message: str
     error: Optional[str] = None
+
+
+# ========================= Google Docs Models =================================
+
+
+class SearchDocsRequest(BaseModel):
+    """Search Google Docs request"""
+
+    query: str = Field(..., min_length=1, description="Search query string")
+    page_size: int = Field(10, ge=1, le=100, description="Number of results to return")
+
+
+class DocInfo(BaseModel):
+    """Google Doc information"""
+
+    id: str
+    name: str
+    created_time: Optional[str] = None
+    modified_time: Optional[str] = None
+    web_view_link: str
+
+
+class SearchDocsResponse(BaseModel):
+    """Search Google Docs response"""
+
+    count: int
+    query: str
+    docs: List[DocInfo]
+    error: Optional[str] = None
+
+
+class GetDocContentRequest(BaseModel):
+    """Get document content request"""
+
+    document_id: str = Field(..., min_length=1, description="Document ID")
+
+
+class GetDocContentResponse(BaseModel):
+    """Get document content response"""
+
+    document_id: str
+    name: str
+    mime_type: str
+    content: str
+    web_view_link: str
+    error: Optional[str] = None
+
+
+class ListDocsInFolderRequest(BaseModel):
+    """List docs in folder request"""
+
+    folder_id: str = Field("root", min_length=1, description="Drive folder ID")
+    page_size: int = Field(100, ge=1, le=1000, description="Number of results")
+
+
+class ListDocsInFolderResponse(BaseModel):
+    """List docs in folder response"""
+
+    count: int
+    folder_id: str
+    docs: List[DocInfo]
+    error: Optional[str] = None
+
+
+class CreateDocRequest(BaseModel):
+    """Create document request"""
+
+    title: str = Field(..., min_length=1, max_length=255, description="Document title")
+    content: str = Field("", description="Initial text content")
+
+
+class CreateDocResponse(BaseModel):
+    """Create document response"""
+
+    status: str
+    document_id: Optional[str] = None
+    title: str
+    web_view_link: Optional[str] = None
+    error: Optional[str] = None
+
+
+class ColorValue(BaseModel):
+    """RGB color value"""
+
+    red: float = Field(..., ge=0.0, le=1.0, description="Red component (0.0-1.0)")
+    green: float = Field(..., ge=0.0, le=1.0, description="Green component (0.0-1.0)")
+    blue: float = Field(..., ge=0.0, le=1.0, description="Blue component (0.0-1.0)")
+
+
+class ModifyDocTextRequest(BaseModel):
+    """Modify document text request"""
+
+    document_id: str = Field(..., min_length=1, description="Document ID")
+    start_index: int = Field(..., ge=0, description="Start position (0-based)")
+    end_index: Optional[int] = Field(
+        None, ge=0, description="End position for replacement"
+    )
+    text: Optional[str] = Field(None, description="Text to insert/replace")
+    bold: Optional[bool] = Field(None, description="Make text bold")
+    italic: Optional[bool] = Field(None, description="Make text italic")
+    underline: Optional[bool] = Field(None, description="Underline text")
+    font_size: Optional[int] = Field(
+        None, ge=6, le=400, description="Font size in points"
+    )
+    font_family: Optional[str] = Field(
+        None, max_length=100, description="Font family name"
+    )
+    text_color: Optional[str] = Field(
+        None, pattern=r"^#[0-9A-Fa-f]{6}$", description="Text color (#RRGGBB)"
+    )
+    background_color: Optional[str] = Field(
+        None, pattern=r"^#[0-9A-Fa-f]{6}$", description="Background color (#RRGGBB)"
+    )
+
+
+class ModifyDocTextResponse(BaseModel):
+    """Modify document text response"""
+
+    status: str
+    document_id: str
+    operations: List[str]
+    web_view_link: str
+    error: Optional[str] = None
+
+
+class FindAndReplaceDocRequest(BaseModel):
+    """Find and replace request"""
+
+    document_id: str = Field(..., min_length=1, description="Document ID")
+    find_text: str = Field(..., min_length=1, description="Text to search for")
+    replace_text: str = Field(..., description="Text to replace with")
+    match_case: bool = Field(False, description="Match case exactly")
+
+
+class FindAndReplaceDocResponse(BaseModel):
+    """Find and replace response"""
+
+    status: str
+    document_id: str
+    replacements: int
+    find_text: str
+    replace_text: str
+    web_view_link: str
+    error: Optional[str] = None
+
+
+class InsertDocElementsRequest(BaseModel):
+    """Insert document elements request"""
+
+    document_id: str = Field(..., min_length=1, description="Document ID")
+    element_type: str = Field(
+        ..., pattern=r"^(table|list|page_break)$", description="Element type"
+    )
+    index: int = Field(..., ge=0, description="Position to insert (0-based)")
+    rows: Optional[int] = Field(
+        None, ge=1, le=20, description="Number of rows (for table)"
+    )
+    columns: Optional[int] = Field(
+        None, ge=1, le=20, description="Number of columns (for table)"
+    )
+    list_type: Optional[str] = Field(
+        None, pattern=r"^(UNORDERED|ORDERED)$", description="List type"
+    )
+    text: Optional[str] = Field(None, description="Initial text for list items")
+
+    @validator("rows")
+    def validate_rows_for_table(cls, v, values):
+        if values.get("element_type") == "table" and v is None:
+            raise ValueError("rows is required for table element")
+        return v
+
+    @validator("columns")
+    def validate_columns_for_table(cls, v, values):
+        if values.get("element_type") == "table" and v is None:
+            raise ValueError("columns is required for table element")
+        return v
+
+    @validator("list_type")
+    def validate_list_type_for_list(cls, v, values):
+        if values.get("element_type") == "list" and v is None:
+            raise ValueError("list_type is required for list element")
+        return v
+
+
+class InsertDocElementsResponse(BaseModel):
+    """Insert document elements response"""
+
+    status: str
+    document_id: str
+    element_type: str
+    index: int
+    web_view_link: str
+    error: Optional[str] = None
+
+
+class InsertDocImageRequest(BaseModel):
+    """Insert document image request"""
+
+    document_id: str = Field(..., min_length=1, description="Document ID")
+    image_source: str = Field(
+        ..., min_length=1, description="Drive file ID or image URL"
+    )
+    index: int = Field(..., ge=0, description="Position to insert (0-based)")
+    width: int = Field(0, ge=0, le=1584, description="Image width in points")
+    height: int = Field(0, ge=0, le=1584, description="Image height in points")
+
+
+class InsertDocImageResponse(BaseModel):
+    """Insert document image response"""
+
+    status: str
+    document_id: str
+    image_source: str
+    index: int
+    web_view_link: str
+    error: Optional[str] = None
+
+
+class UpdateDocHeadersFootersRequest(BaseModel):
+    """Update headers/footers request"""
+
+    document_id: str = Field(..., min_length=1, description="Document ID")
+    section_type: str = Field(
+        ..., pattern=r"^(header|footer)$", description="Section type"
+    )
+    content: str = Field(
+        ..., min_length=1, max_length=1000, description="Header/footer content"
+    )
+    header_footer_type: str = Field(
+        "DEFAULT",
+        pattern=r"^(DEFAULT|FIRST_PAGE_ONLY|EVEN_PAGE)$",
+        description="Header/footer type",
+    )
+
+
+class UpdateDocHeadersFootersResponse(BaseModel):
+    """Update headers/footers response"""
+
+    status: str
+    document_id: str
+    section_type: str
+    header_footer_type: str
+    web_view_link: str
+    error: Optional[str] = None
+
+
+class DocOperation(BaseModel):
+    """Document operation for batch update"""
+
+    type: str = Field(
+        ...,
+        pattern=r"^(insert_text|delete_text|replace_text|format_text|insert_table|insert_page_break)$",
+        description="Operation type",
+    )
+    index: Optional[int] = Field(None, ge=0, description="Position for operation")
+    start_index: Optional[int] = Field(None, ge=0, description="Start position")
+    end_index: Optional[int] = Field(None, ge=0, description="End position")
+    text: Optional[str] = Field(None, description="Text content")
+    rows: Optional[int] = Field(None, ge=1, le=20, description="Table rows")
+    columns: Optional[int] = Field(None, ge=1, le=20, description="Table columns")
+    bold: Optional[bool] = None
+    italic: Optional[bool] = None
+    underline: Optional[bool] = None
+    font_size: Optional[int] = Field(None, ge=6, le=400)
+    font_family: Optional[str] = None
+
+
+class BatchUpdateDocRequest(BaseModel):
+    """Batch update document request"""
+
+    document_id: str = Field(..., min_length=1, description="Document ID")
+    operations: List[DocOperation] = Field(
+        ..., min_items=1, max_items=500, description="List of operations"
+    )
+
+
+class BatchUpdateDocResponse(BaseModel):
+    """Batch update document response"""
+
+    status: str
+    document_id: str
+    operations_count: int
+    web_view_link: str
+    error: Optional[str] = None
+
+
+class InspectDocStructureRequest(BaseModel):
+    """Inspect document structure request"""
+
+    document_id: str = Field(..., min_length=1, description="Document ID")
+    detailed: bool = Field(False, description="Return detailed information")
+
+
+class InspectDocStructureResponse(BaseModel):
+    """Inspect document structure response"""
+
+    status: str
+    document_id: str
+    structure: dict
+    error: Optional[str] = None
+
+
+class CreateTableWithDataRequest(BaseModel):
+    """Create table with data request"""
+
+    document_id: str = Field(..., min_length=1, description="Document ID")
+    table_data: List[List[str]] = Field(
+        ..., min_items=1, description="Table data (rows x columns)"
+    )
+    index: int = Field(..., ge=0, description="Position to insert (0-based)")
+    bold_headers: bool = Field(True, description="Make first row bold")
+
+    @validator("table_data")
+    def validate_table_data(cls, v):
+        if not v or not v[0]:
+            raise ValueError("table_data must contain at least one row with data")
+        col_count = len(v[0])
+        for row in v:
+            if len(row) != col_count:
+                raise ValueError("All rows must have the same number of columns")
+        return v
+
+
+class CreateTableWithDataResponse(BaseModel):
+    """Create table with data response"""
+
+    status: str
+    document_id: str
+    rows: int
+    columns: int
+    web_view_link: str
+    error: Optional[str] = None
+
+
+class DebugTableStructureRequest(BaseModel):
+    """Debug table structure request"""
+
+    document_id: str = Field(..., min_length=1, description="Document ID")
+    table_index: int = Field(0, ge=0, description="Table index")
+
+
+class DebugTableStructureResponse(BaseModel):
+    """Debug table structure response"""
+
+    status: str
+    document_id: str
+    table_index: int
+    structure: dict
+    error: Optional[str] = None
+
+
+class ExportDocToPdfRequest(BaseModel):
+    """Export document to PDF request"""
+
+    document_id: str = Field(..., min_length=1, description="Document ID")
+    pdf_filename: Optional[str] = Field(
+        None, max_length=255, description="PDF filename"
+    )
+    folder_id: Optional[str] = Field(None, description="Drive folder ID")
+
+
+class ExportDocToPdfResponse(BaseModel):
+    """Export document to PDF response"""
+
+    status: str
+    document_id: str
+    pdf_id: Optional[str] = None
+    pdf_filename: str
+    web_view_link: Optional[str] = None
+    error: Optional[str] = None
+
+
+class ReadDocCommentsRequest(BaseModel):
+    """Read document comments request"""
+
+    document_id: str = Field(..., min_length=1, description="Document ID")
+
+
+class CommentInfo(BaseModel):
+    """Comment information"""
+
+    id: str
+    content: str
+    author: str
+    created_time: str
+    resolved: bool
+    replies: List[dict] = []
+
+
+class ReadDocCommentsResponse(BaseModel):
+    """Read document comments response"""
+
+    status: str
+    document_id: str
+    count: int
+    comments: List[CommentInfo]
+    error: Optional[str] = None
+
+
+class CreateDocCommentRequest(BaseModel):
+    """Create document comment request"""
+
+    document_id: str = Field(..., min_length=1, description="Document ID")
+    content: str = Field(
+        ..., min_length=1, max_length=2000, description="Comment content"
+    )
+    start_index: int = Field(..., ge=0, description="Start index for comment")
+    end_index: int = Field(..., ge=0, description="End index for comment")
+
+    @validator("end_index")
+    def validate_end_index(cls, v, values):
+        if "start_index" in values and v <= values["start_index"]:
+            raise ValueError("end_index must be greater than start_index")
+        return v
+
+
+class CreateDocCommentResponse(BaseModel):
+    """Create document comment response"""
+
+    status: str
+    comment_id: Optional[str] = None
+    document_id: str
+    error: Optional[str] = None
+
+
+class ReplyToCommentRequest(BaseModel):
+    """Reply to comment request"""
+
+    document_id: str = Field(..., min_length=1, description="Document ID")
+    comment_id: str = Field(..., min_length=1, description="Comment ID")
+    reply_content: str = Field(
+        ..., min_length=1, max_length=2000, description="Reply content"
+    )
+
+
+class ReplyToCommentResponse(BaseModel):
+    """Reply to comment response"""
+
+    status: str
+    reply_id: Optional[str] = None
+    comment_id: str
+    document_id: str
+    error: Optional[str] = None
+
+
+class ResolveCommentRequest(BaseModel):
+    """Resolve comment request"""
+
+    document_id: str = Field(..., min_length=1, description="Document ID")
+    comment_id: str = Field(..., min_length=1, description="Comment ID")
+
+
+class ResolveCommentResponse(BaseModel):
+    """Resolve comment response"""
+
+    status: str
+    comment_id: str
+    document_id: str
+    error: Optional[str] = None
+    """Update Drive file response"""
+
+    status: str
+    message: str
+    error: Optional[str] = None
     """Create sheet request"""
 
     spreadsheet_id: str = Field(..., min_length=1, description="Spreadsheet ID")

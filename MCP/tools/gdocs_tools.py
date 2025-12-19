@@ -7,7 +7,6 @@ This module provides MCP tools for interacting with Google Docs API and managing
 import logging
 import asyncio
 import io
-from typing import List, Dict, Any
 from pathlib import Path
 
 from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
@@ -17,6 +16,39 @@ from MCP.auth.service_decoder import get_google_service
 from MCP.helper.utils import extract_office_xml_text
 from MCP.core.server_init import content_server
 from MCP.tools.workspace_comment_base import create_comment_tools
+
+# Import Pydantic models
+from MCP.helper.pydantic_models import (
+    SearchDocsRequest,
+    SearchDocsResponse,
+    DocInfo,
+    GetDocContentRequest,
+    GetDocContentResponse,
+    ListDocsInFolderRequest,
+    ListDocsInFolderResponse,
+    CreateDocRequest,
+    CreateDocResponse,
+    ModifyDocTextRequest,
+    ModifyDocTextResponse,
+    FindAndReplaceDocRequest,
+    FindAndReplaceDocResponse,
+    InsertDocElementsRequest,
+    InsertDocElementsResponse,
+    InsertDocImageRequest,
+    InsertDocImageResponse,
+    UpdateDocHeadersFootersRequest,
+    UpdateDocHeadersFootersResponse,
+    BatchUpdateDocRequest,
+    BatchUpdateDocResponse,
+    InspectDocStructureRequest,
+    InspectDocStructureResponse,
+    CreateTableWithDataRequest,
+    CreateTableWithDataResponse,
+    DebugTableStructureRequest,
+    DebugTableStructureResponse,
+    ExportDocToPdfRequest,
+    ExportDocToPdfResponse,
+)
 
 # Import helper functions for document operations
 from MCP.helper.docs_helper import (
@@ -41,7 +73,6 @@ from MCP.helper.docs_managers import (
     ValidationManager,
     BatchOperationManager,
 )
-import json
 
 logger = logging.getLogger(__name__)
 
@@ -75,10 +106,7 @@ def drive_get_service():
 
 
 @content_server.tool()
-async def search_docs(
-    query: str,
-    page_size: int = 10,
-) -> str:
+async def search_docs(request: SearchDocsRequest) -> dict:
     """
     Searches for Google Docs by name using Drive API (mimeType filter).
 
@@ -87,40 +115,57 @@ async def search_docs(
         page_size (int): The number of results to return. Optional.
 
     Returns:
-        str: A formatted list of Google Docs matching the search query.
+        dict: A dictionary containing count, docs list, and query.
     """
-    service = get_service()
-    logger.info(f"[search_docs] Query='{query}'")
 
-    escaped_query = query.replace("'", "\\'")
+    try:
+        service = get_service()
+        logger.info(f"[search_docs] Query='{request.query}'")
 
-    response = await asyncio.to_thread(
-        service.files()
-        .list(
-            q=f"name contains '{escaped_query}' and mimeType='application/vnd.google-apps.document' and trashed=false",
-            pageSize=page_size,
-            fields="files(id, name, createdTime, modifiedTime, webViewLink)",
-            supportsAllDrives=True,
-            includeItemsFromAllDrives=True,
+        escaped_query = request.query.replace("'", "\\'")
+
+        response = await asyncio.to_thread(
+            service.files()
+            .list(
+                q=f"name contains '{escaped_query}' and mimeType='application/vnd.google-apps.document' and trashed=false",
+                pageSize=request.page_size,
+                fields="files(id, name, createdTime, modifiedTime, webViewLink)",
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True,
+            )
+            .execute
         )
-        .execute
-    )
-    files = response.get("files", [])
-    if not files:
-        return f"No Google Docs found matching '{query}'."
+        files = response.get("files", [])
+        if not files:
+            return SearchDocsResponse(
+                count=0, docs=[], query=request.query
+            ).model_dump()
 
-    output = [f"Found {len(files)} Google Docs matching '{query}':"]
-    for f in files:
-        output.append(
-            f"- {f['name']} (ID: {f['id']}) Modified: {f.get('modifiedTime')} Link: {f.get('webViewLink')}"
-        )
-    return "\n".join(output)
+        doc_list = [
+            DocInfo(
+                id=f.get("id", ""),
+                name=f.get("name", "Unnamed Document"),
+                created_time=f.get("createdTime", ""),
+                modified_time=f.get("modifiedTime", ""),
+                web_view_link=f.get("webViewLink", ""),
+            )
+            for f in files
+        ]
+
+        logger.info(f"Found {len(doc_list)} docs matching '{request.query}'")
+        return SearchDocsResponse(
+            count=len(doc_list), docs=doc_list, query=request.query
+        ).model_dump()
+
+    except Exception as error:
+        logger.error(f"Failed to search docs: {error}")
+        return SearchDocsResponse(
+            count=0, docs=[], query=request.query, error=str(error)
+        ).model_dump()
 
 
 @content_server.tool()
-async def get_doc_content(
-    document_id: str,
-) -> str:
+async def get_doc_content(request: GetDocContentRequest) -> dict:
     """
     Retrieves content of a Google Doc or a Drive file (like .docx) identified by document_id.
     - Native Google Docs: Fetches content via Docs API.
@@ -130,169 +175,188 @@ async def get_doc_content(
         document_id: ID of the Google Doc or Drive file to retrieve content from. Required.
 
     Returns:
-        str: The document content with metadata header.
+        dict: A dictionary containing document metadata and content.
     """
-    drive_service = drive_get_service()
-    docs_service = get_service()
-    logger.info(f"[get_doc_content] Invoked. Document/File ID: '{document_id}'")
-
-    # Step 2: Get file metadata from Drive
-    file_metadata = await asyncio.to_thread(
-        drive_service.files()
-        .get(
-            fileId=document_id,
-            fields="id, name, mimeType, webViewLink",
-            supportsAllDrives=True,
-        )
-        .execute
-    )
-    mime_type = file_metadata.get("mimeType", "")
-    file_name = file_metadata.get("name", "Unknown File")
-    web_view_link = file_metadata.get("webViewLink", "#")
-
-    logger.info(
-        f"[get_doc_content] File '{file_name}' (ID: {document_id}) has mimeType: '{mime_type}'"
-    )
-
-    body_text = ""  # Initialize body_text
-
-    # Step 3: Process based on mimeType
-    if mime_type == "application/vnd.google-apps.document":
-        logger.info("[get_doc_content] Processing as native Google Doc.")
-        doc_data = await asyncio.to_thread(
-            docs_service.documents()
-            .get(documentId=document_id, includeTabsContent=True)
-            .execute
-        )
-        # Tab header format constant
-        TAB_HEADER_FORMAT = "\n--- TAB: {tab_name} ---\n"
-
-        def extract_text_from_elements(elements, tab_name=None, depth=0):
-            """Extract text from document elements (paragraphs, tables, etc.)"""
-            # Prevent infinite recursion by limiting depth
-            if depth > 5:
-                return ""
-            text_lines = []
-            if tab_name:
-                text_lines.append(TAB_HEADER_FORMAT.format(tab_name=tab_name))
-
-            for element in elements:
-                if "paragraph" in element:
-                    paragraph = element.get("paragraph", {})
-                    para_elements = paragraph.get("elements", [])
-                    current_line_text = ""
-                    for pe in para_elements:
-                        text_run = pe.get("textRun", {})
-                        if text_run and "content" in text_run:
-                            current_line_text += text_run["content"]
-                    if current_line_text.strip():
-                        text_lines.append(current_line_text)
-                elif "table" in element:
-                    # Handle table content
-                    table = element.get("table", {})
-                    table_rows = table.get("tableRows", [])
-                    for row in table_rows:
-                        row_cells = row.get("tableCells", [])
-                        for cell in row_cells:
-                            cell_content = cell.get("content", [])
-                            cell_text = extract_text_from_elements(
-                                cell_content, depth=depth + 1
-                            )
-                            if cell_text.strip():
-                                text_lines.append(cell_text)
-            return "".join(text_lines)
-
-        def process_tab_hierarchy(tab, level=0):
-            """Process a tab and its nested child tabs recursively"""
-            tab_text = ""
-
-            if "documentTab" in tab:
-                props = tab.get("tabProperties", {})
-                tab_title = props.get("title", "Untitled Tab")
-                tab_id = props.get("tabId", "Unknown ID")
-                # Add indentation for nested tabs to show hierarchy
-                if level > 0:
-                    tab_title = "    " * level + f"{tab_title} ( ID: {tab_id})"
-                tab_body = tab.get("documentTab", {}).get("body", {}).get("content", [])
-                tab_text += extract_text_from_elements(tab_body, tab_title)
-
-            # Process child tabs (nested tabs)
-            child_tabs = tab.get("childTabs", [])
-            for child_tab in child_tabs:
-                tab_text += process_tab_hierarchy(child_tab, level + 1)
-
-            return tab_text
-
-        processed_text_lines = []
-
-        # Process main document body
-        body_elements = doc_data.get("body", {}).get("content", [])
-        main_content = extract_text_from_elements(body_elements)
-        if main_content.strip():
-            processed_text_lines.append(main_content)
-
-        # Process all tabs
-        tabs = doc_data.get("tabs", [])
-        for tab in tabs:
-            tab_content = process_tab_hierarchy(tab)
-            if tab_content.strip():
-                processed_text_lines.append(tab_content)
-
-        body_text = "".join(processed_text_lines)
-    else:
+    try:
+        drive_service = drive_get_service()
+        docs_service = get_service()
         logger.info(
-            f"[get_doc_content] Processing as Drive file (e.g., .docx, other). MimeType: {mime_type}"
+            f"[get_doc_content] Invoked. Document/File ID: '{request.document_id}'"
         )
 
-        export_mime_type_map = {
-            # Example: "application/vnd.google-apps.spreadsheet"z: "text/csv",
-            # Native GSuite types that are not Docs would go here if this function
-            # was intended to export them. For .docx, direct download is used.
-        }
-        effective_export_mime = export_mime_type_map.get(mime_type)
-
-        request_obj = (
-            drive_service.files().export_media(
-                fileId=document_id,
-                mimeType=effective_export_mime,
+        # Step 2: Get file metadata from Drive
+        file_metadata = await asyncio.to_thread(
+            drive_service.files()
+            .get(
+                fileId=request.document_id,
+                fields="id, name, mimeType, webViewLink",
                 supportsAllDrives=True,
             )
-            if effective_export_mime
-            else drive_service.files().get_media(
-                fileId=document_id, supportsAllDrives=True
-            )
+            .execute
+        )
+        mime_type = file_metadata.get("mimeType", "")
+        file_name = file_metadata.get("name", "Unknown File")
+        web_view_link = file_metadata.get("webViewLink", "#")
+
+        logger.info(
+            f"[get_doc_content] File '{file_name}' (ID: {request.document_id}) has mimeType: '{mime_type}'"
         )
 
-        fh = io.BytesIO()
-        downloader = MediaIoBaseDownload(fh, request_obj)
-        loop = asyncio.get_event_loop()
-        done = False
-        while not done:
-            status, done = await loop.run_in_executor(None, downloader.next_chunk)
+        body_text = ""  # Initialize body_text
 
-        file_content_bytes = fh.getvalue()
+        # Step 3: Process based on mimeType
+        if mime_type == "application/vnd.google-apps.document":
+            logger.info("[get_doc_content] Processing as native Google Doc.")
+            doc_data = await asyncio.to_thread(
+                docs_service.documents()
+                .get(documentId=request.document_id, includeTabsContent=True)
+                .execute
+            )
+            # Tab header format constant
+            TAB_HEADER_FORMAT = "\n--- TAB: {tab_name} ---\n"
 
-        office_text = extract_office_xml_text(file_content_bytes, mime_type)
-        if office_text:
-            body_text = office_text
+            def extract_text_from_elements(elements, tab_name=None, depth=0):
+                """Extract text from document elements (paragraphs, tables, etc.)"""
+                # Prevent infinite recursion by limiting depth
+                if depth > 5:
+                    return ""
+                text_lines = []
+                if tab_name:
+                    text_lines.append(TAB_HEADER_FORMAT.format(tab_name=tab_name))
+
+                for element in elements:
+                    if "paragraph" in element:
+                        paragraph = element.get("paragraph", {})
+                        para_elements = paragraph.get("elements", [])
+                        current_line_text = ""
+                        for pe in para_elements:
+                            text_run = pe.get("textRun", {})
+                            if text_run and "content" in text_run:
+                                current_line_text += text_run["content"]
+                        if current_line_text.strip():
+                            text_lines.append(current_line_text)
+                    elif "table" in element:
+                        # Handle table content
+                        table = element.get("table", {})
+                        table_rows = table.get("tableRows", [])
+                        for row in table_rows:
+                            row_cells = row.get("tableCells", [])
+                            for cell in row_cells:
+                                cell_content = cell.get("content", [])
+                                cell_text = extract_text_from_elements(
+                                    cell_content, depth=depth + 1
+                                )
+                                if cell_text.strip():
+                                    text_lines.append(cell_text)
+                return "".join(text_lines)
+
+            def process_tab_hierarchy(tab, level=0):
+                """Process a tab and its nested child tabs recursively"""
+                tab_text = ""
+
+                if "documentTab" in tab:
+                    props = tab.get("tabProperties", {})
+                    tab_title = props.get("title", "Untitled Tab")
+                    tab_id = props.get("tabId", "Unknown ID")
+                    # Add indentation for nested tabs to show hierarchy
+                    if level > 0:
+                        tab_title = "    " * level + f"{tab_title} ( ID: {tab_id})"
+                    tab_body = (
+                        tab.get("documentTab", {}).get("body", {}).get("content", [])
+                    )
+                    tab_text += extract_text_from_elements(tab_body, tab_title)
+
+                # Process child tabs (nested tabs)
+                child_tabs = tab.get("childTabs", [])
+                for child_tab in child_tabs:
+                    tab_text += process_tab_hierarchy(child_tab, level + 1)
+
+                return tab_text
+
+            processed_text_lines = []
+
+            # Process main document body
+            body_elements = doc_data.get("body", {}).get("content", [])
+            main_content = extract_text_from_elements(body_elements)
+            if main_content.strip():
+                processed_text_lines.append(main_content)
+
+            # Process all tabs
+            tabs = doc_data.get("tabs", [])
+            for tab in tabs:
+                tab_content = process_tab_hierarchy(tab)
+                if tab_content.strip():
+                    processed_text_lines.append(tab_content)
+
+            body_text = "".join(processed_text_lines)
         else:
-            try:
-                body_text = file_content_bytes.decode("utf-8")
-            except UnicodeDecodeError:
-                body_text = (
-                    f"[Binary or unsupported text encoding for mimeType '{mime_type}' - "
-                    f"{len(file_content_bytes)} bytes]"
-                )
+            logger.info(
+                f"[get_doc_content] Processing as Drive file (e.g., .docx, other). MimeType: {mime_type}"
+            )
 
-    header = (
-        f'File: "{file_name}" (ID: {document_id}, Type: {mime_type})\n'
-        f"Link: {web_view_link}\n\n--- CONTENT ---\n"
-    )
-    return header + body_text
+            export_mime_type_map = {
+                # Example: "application/vnd.google-apps.spreadsheet"z: "text/csv",
+                # Native GSuite types that are not Docs would go here if this function
+                # was intended to export them. For .docx, direct download is used.
+            }
+            effective_export_mime = export_mime_type_map.get(mime_type)
+
+            request_obj = (
+                drive_service.files().export_media(
+                    fileId=request.document_id,
+                    mimeType=effective_export_mime,
+                    supportsAllDrives=True,
+                )
+                if effective_export_mime
+                else drive_service.files().get_media(
+                    fileId=request.document_id, supportsAllDrives=True
+                )
+            )
+
+            fh = io.BytesIO()
+            downloader = MediaIoBaseDownload(fh, request_obj)
+            loop = asyncio.get_event_loop()
+            done = False
+            while not done:
+                status, done = await loop.run_in_executor(None, downloader.next_chunk)
+
+            file_content_bytes = fh.getvalue()
+
+            office_text = extract_office_xml_text(file_content_bytes, mime_type)
+            if office_text:
+                body_text = office_text
+            else:
+                try:
+                    body_text = file_content_bytes.decode("utf-8")
+                except UnicodeDecodeError:
+                    body_text = (
+                        f"[Binary or unsupported text encoding for mimeType '{mime_type}' - "
+                        f"{len(file_content_bytes)} bytes]"
+                    )
+
+        logger.info(f"Successfully retrieved content from {request.document_id}")
+        return GetDocContentResponse(
+            document_id=request.document_id,
+            name=file_name,
+            mime_type=mime_type,
+            content=body_text,
+            web_view_link=web_view_link,
+        ).model_dump()
+
+    except Exception as error:
+        logger.error(f"Failed to get doc content for {request.document_id}: {error}")
+        return GetDocContentResponse(
+            document_id=request.document_id,
+            name="",
+            mime_type="",
+            content="",
+            web_view_link="",
+            error=str(error),
+        ).model_dump()
 
 
 @content_server.tool()
-async def list_docs_in_folder(folder_id: str = "root", page_size: int = 100) -> str:
+async def list_docs_in_folder(request: ListDocsInFolderRequest) -> dict:
     """
     Lists Google Docs within a specific Drive folder.
 
@@ -301,82 +365,97 @@ async def list_docs_in_folder(folder_id: str = "root", page_size: int = 100) -> 
         page_size: Number of results to return (default is 100)
 
     Returns:
-        str: A formatted list of Google Docs in the specified folder.
+        dict: A dictionary containing count, folder_id, and docs list.
     """
-    service = get_service()
-    logger.info(f"[list_docs_in_folder] Invoked. Folder ID: '{folder_id}'")
+    try:
+        service = get_service()
+        logger.info(f"[list_docs_in_folder] Invoked. Folder ID: '{request.folder_id}'")
 
-    rsp = await asyncio.to_thread(
-        service.files()
-        .list(
-            q=f"'{folder_id}' in parents and mimeType='application/vnd.google-apps.document' and trashed=false",
-            pageSize=page_size,
-            fields="files(id, name, modifiedTime, webViewLink)",
-            supportsAllDrives=True,
-            includeItemsFromAllDrives=True,
+        rsp = await asyncio.to_thread(
+            service.files()
+            .list(
+                q=f"'{request.folder_id}' in parents and mimeType='application/vnd.google-apps.document' and trashed=false",
+                pageSize=request.page_size,
+                fields="files(id, name, modifiedTime, webViewLink)",
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True,
+            )
+            .execute
         )
-        .execute
-    )
-    items = rsp.get("files", [])
-    if not items:
-        return f"No Google Docs found in folder '{folder_id}'."
-    out = [f"Found {len(items)} Docs in folder '{folder_id}':"]
-    for f in items:
-        out.append(
-            f"- {f['name']} (ID: {f['id']}) Modified: {f.get('modifiedTime')} Link: {f.get('webViewLink')}"
-        )
-    return "\n".join(out)
+        items = rsp.get("files", [])
+        if not items:
+            return ListDocsInFolderResponse(
+                count=0, folder_id=request.folder_id, docs=[]
+            ).model_dump()
+
+        doc_list = [
+            DocInfo(
+                id=f.get("id", ""),
+                name=f.get("name", "Unnamed Document"),
+                created_time="",
+                modified_time=f.get("modifiedTime", ""),
+                web_view_link=f.get("webViewLink", ""),
+            )
+            for f in items
+        ]
+
+        logger.info(f"Listed {len(doc_list)} docs in folder '{request.folder_id}'")
+        return ListDocsInFolderResponse(
+            count=len(doc_list), folder_id=request.folder_id, docs=doc_list
+        ).model_dump()
+
+    except Exception as error:
+        logger.error(f"Failed to list docs in folder {request.folder_id}: {error}")
+        return ListDocsInFolderResponse(
+            count=0, folder_id=request.folder_id, docs=[], error=str(error)
+        ).model_dump()
 
 
 @content_server.tool()
-async def create_doc(
-    title: str,
-    content: str = "",
-) -> str:
+async def create_doc(request: CreateDocRequest) -> dict:
     """
     Creates a new Google Doc and optionally inserts initial content.
     Args:
         title: Title of the new document. Required.
         content: Initial text content to insert into the document (optional)
     Returns:
-        str: Confirmation message with document ID and link.
+        dict: A dictionary containing success status, document_id, title, and web_view_link.
     """
-    service = get_service()
-    logger.info(f"[create_doc] Invoked. Title='{title}'")
+    try:
+        service = get_service()
+        logger.info(f"[create_doc] Invoked. Title='{request.title}'")
 
-    doc = await asyncio.to_thread(
-        service.documents().create(body={"title": title}).execute
-    )
-    doc_id = doc.get("documentId")
-    if content:
-        requests = [{"insertText": {"location": {"index": 1}, "text": content}}]
-        await asyncio.to_thread(
-            service.documents()
-            .batchUpdate(documentId=doc_id, body={"requests": requests})
-            .execute
+        doc = await asyncio.to_thread(
+            service.documents().create(body={"title": request.title}).execute
         )
-    link = f"https://docs.google.com/document/d/{doc_id}/edit"
-    msg = f"Created Google Doc '{title}' (ID: {doc_id}). Link: {link}"
-    logger.info(
-        f"Successfully created Google Doc '{title}' (ID: {doc_id}). Link: {link}"
-    )
-    return msg
+        doc_id = doc.get("documentId")
+        if request.content:
+            requests = [
+                {"insertText": {"location": {"index": 1}, "text": request.content}}
+            ]
+            await asyncio.to_thread(
+                service.documents()
+                .batchUpdate(documentId=doc_id, body={"requests": requests})
+                .execute
+            )
+        link = f"https://docs.google.com/document/d/{doc_id}/edit"
+        logger.info(
+            f"Successfully created Google Doc '{request.title}' (ID: {doc_id}). Link: {link}"
+        )
+        return CreateDocResponse(
+            success=True,
+            document_id=doc_id,
+            title=request.title,
+            web_view_link=link,
+        ).model_dump()
+
+    except Exception as error:
+        logger.error(f"Failed to create doc '{request.title}': {error}")
+        return CreateDocResponse(success=False, error=str(error)).model_dump()
 
 
 @content_server.tool()
-async def modify_doc_text(
-    document_id: str,
-    start_index: int,
-    end_index: int = None,
-    text: str = None,
-    bold: bool = None,
-    italic: bool = None,
-    underline: bool = None,
-    font_size: int = None,
-    font_family: str = None,
-    text_color: Any = None,
-    background_color: Any = None,
-) -> str:
+async def modify_doc_text(request: ModifyDocTextRequest) -> dict:
     """
     Modifies text in a Google Doc - can insert/replace text and/or apply formatting in a single operation.
 
@@ -394,187 +473,210 @@ async def modify_doc_text(
         background_color: Background/highlight color (#RRGGBB or RGB tuple/list)
 
     Returns:
-        str: Confirmation message with operation details
+        dict: A dictionary containing success status, document_id, operation, and web_view_link.
     """
-    service = get_service()
-    logger.info(
-        f"[modify_doc_text] Doc={document_id}, start={start_index}, end={end_index}, text={text is not None}, "
-        f"formatting={any([bold, italic, underline, font_size, font_family, text_color, background_color])}"
-    )
-
-    # Input validation
-    validator = ValidationManager()
-
-    is_valid, error_msg = validator.validate_document_id(document_id)
-    if not is_valid:
-        return f"Error: {error_msg}"
-
-    # Validate that we have something to do
-    if text is None and not any(
-        [
-            bold is not None,
-            italic is not None,
-            underline is not None,
-            font_size,
-            font_family,
-            text_color,
-            background_color,
-        ]
-    ):
-        return "Error: Must provide either 'text' to insert/replace, or formatting parameters (bold, italic, underline, font_size, font_family, text_color, background_color)."
-
-    # Validate text formatting params if provided
-    if any(
-        [
-            bold is not None,
-            italic is not None,
-            underline is not None,
-            font_size,
-            font_family,
-            text_color,
-            background_color,
-        ]
-    ):
-        is_valid, error_msg = validator.validate_text_formatting_params(
-            bold,
-            italic,
-            underline,
-            font_size,
-            font_family,
-            text_color,
-            background_color,
+    try:
+        service = get_service()
+        logger.info(
+            f"[modify_doc_text] Doc={request.document_id}, start={request.start_index}, end={request.end_index}, text={request.text is not None}, "
+            f"formatting={any([request.bold, request.italic, request.underline, request.font_size, request.font_family, request.text_color, request.background_color])}"
         )
+
+        # Input validation
+        validator = ValidationManager()
+
+        is_valid, error_msg = validator.validate_document_id(request.document_id)
         if not is_valid:
             return f"Error: {error_msg}"
 
-        # For formatting, we need end_index
-        if end_index is None:
-            return "Error: 'end_index' is required when applying formatting."
+        # Validate that we have something to do
+        if request.text is None and not any(
+            [
+                request.bold is not None,
+                request.italic is not None,
+                request.underline is not None,
+                request.font_size,
+                request.font_family,
+                request.text_color,
+                request.background_color,
+            ]
+        ):
+            return "Error: Must provide either 'text' to insert/replace, or formatting parameters (bold, italic, underline, font_size, font_family, text_color, background_color)."
 
-        is_valid, error_msg = validator.validate_index_range(start_index, end_index)
-        if not is_valid:
-            return f"Error: {error_msg}"
-
-    requests = []
-    operations = []
-
-    # Handle text insertion/replacement
-    if text is not None:
-        if end_index is not None and end_index > start_index:
-            # Text replacement
-            if start_index == 0:
-                # Special case: Cannot delete at index 0 (first section break)
-                # Instead, we insert new text at index 1 and then delete the old text
-                requests.append(create_insert_text_request(1, text))
-                adjusted_end = end_index + len(text)
-                requests.append(
-                    create_delete_range_request(1 + len(text), adjusted_end)
-                )
-                operations.append(
-                    f"Replaced text from index {start_index} to {end_index}"
-                )
-            else:
-                # Normal replacement: delete old text, then insert new text
-                requests.extend(
-                    [
-                        create_delete_range_request(start_index, end_index),
-                        create_insert_text_request(start_index, text),
-                    ]
-                )
-                operations.append(
-                    f"Replaced text from index {start_index} to {end_index}"
-                )
-        else:
-            # Text insertion
-            actual_index = 1 if start_index == 0 else start_index
-            requests.append(create_insert_text_request(actual_index, text))
-            operations.append(f"Inserted text at index {start_index}")
-
-    # Handle formatting
-    if any(
-        [
-            bold is not None,
-            italic is not None,
-            underline is not None,
-            font_size,
-            font_family,
-            text_color,
-            background_color,
-        ]
-    ):
-        # Adjust range for formatting based on text operations
-        format_start = start_index
-        format_end = end_index
-
-        if text is not None:
-            if end_index is not None and end_index > start_index:
-                # Text was replaced - format the new text
-                format_end = start_index + len(text)
-            else:
-                # Text was inserted - format the inserted text
-                actual_index = 1 if start_index == 0 else start_index
-                format_start = actual_index
-                format_end = actual_index + len(text)
-
-        # Handle special case for formatting at index 0
-        if format_start == 0:
-            format_start = 1
-        if format_end is not None and format_end <= format_start:
-            format_end = format_start + 1
-
-        requests.append(
-            create_format_text_request(
-                format_start,
-                format_end,
-                bold,
-                italic,
-                underline,
-                font_size,
-                font_family,
-                text_color,
-                background_color,
+        # Validate text formatting params if provided
+        if any(
+            [
+                request.bold is not None,
+                request.italic is not None,
+                request.underline is not None,
+                request.font_size,
+                request.font_family,
+                request.text_color,
+                request.background_color,
+            ]
+        ):
+            is_valid, error_msg = validator.validate_text_formatting_params(
+                request.bold,
+                request.italic,
+                request.underline,
+                request.font_size,
+                request.font_family,
+                request.text_color,
+                request.background_color,
             )
+            if not is_valid:
+                return f"Error: {error_msg}"
+
+            # For formatting, we need end_index
+            if request.end_index is None:
+                return "Error: 'end_index' is required when applying formatting."
+
+            is_valid, error_msg = validator.validate_index_range(
+                request.start_index, request.end_index
+            )
+            if not is_valid:
+                return f"Error: {error_msg}"
+
+        requests = []
+        operations = []
+
+        # Handle text insertion/replacement
+        if request.text is not None:
+            if (
+                request.end_index is not None
+                and request.end_index > request.start_index
+            ):
+                # Text replacement
+                if request.start_index == 0:
+                    # Special case: Cannot delete at index 0 (first section break)
+                    # Instead, we insert new text at index 1 and then delete the old text
+                    requests.append(create_insert_text_request(1, request.text))
+                    adjusted_end = request.end_index + len(request.text)
+                    requests.append(
+                        create_delete_range_request(1 + len(request.text), adjusted_end)
+                    )
+                    operations.append(
+                        f"Replaced text from index {request.start_index} to {request.end_index}"
+                    )
+                else:
+                    # Normal replacement: delete old text, then insert new text
+                    requests.extend(
+                        [
+                            create_delete_range_request(
+                                request.start_index, request.end_index
+                            ),
+                            create_insert_text_request(
+                                request.start_index, request.text
+                            ),
+                        ]
+                    )
+                    operations.append(
+                        f"Replaced text from index {request.start_index} to {request.end_index}"
+                    )
+            else:
+                # Text insertion
+                actual_index = 1 if request.start_index == 0 else request.start_index
+                requests.append(create_insert_text_request(actual_index, request.text))
+                operations.append(f"Inserted text at index {request.start_index}")
+
+        # Handle formatting
+        if any(
+            [
+                request.bold is not None,
+                request.italic is not None,
+                request.underline is not None,
+                request.font_size,
+                request.font_family,
+                request.text_color,
+                request.background_color,
+            ]
+        ):
+            # Adjust range for formatting based on text operations
+            format_start = request.start_index
+            format_end = request.end_index
+
+            if request.text is not None:
+                if (
+                    request.end_index is not None
+                    and request.end_index > request.start_index
+                ):
+                    # Text was replaced - format the new text
+                    format_end = request.start_index + len(request.text)
+                else:
+                    # Text was inserted - format the inserted text
+                    actual_index = (
+                        1 if request.start_index == 0 else request.start_index
+                    )
+                    format_start = actual_index
+                    format_end = actual_index + len(request.text)
+
+            # Handle special case for formatting at index 0
+            if format_start == 0:
+                format_start = 1
+            if format_end is not None and format_end <= format_start:
+                format_end = format_start + 1
+
+            requests.append(
+                create_format_text_request(
+                    format_start,
+                    format_end,
+                    request.bold,
+                    request.italic,
+                    request.underline,
+                    request.font_size,
+                    request.font_family,
+                    request.text_color,
+                    request.background_color,
+                )
+            )
+
+            format_details = []
+            if request.bold is not None:
+                format_details.append(f"bold={request.bold}")
+            if request.italic is not None:
+                format_details.append(f"italic={request.italic}")
+            if request.underline is not None:
+                format_details.append(f"underline={request.underline}")
+            if request.font_size:
+                format_details.append(f"font_size={request.font_size}")
+            if request.font_family:
+                format_details.append(f"font_family={request.font_family}")
+            if request.text_color:
+                format_details.append(f"text_color={request.text_color}")
+            if request.background_color:
+                format_details.append(f"background_color={request.background_color}")
+
+            operations.append(
+                f"Applied formatting ({', '.join(format_details)}) to range {format_start}-{format_end}"
+            )
+
+        await asyncio.to_thread(
+            service.documents()
+            .batchUpdate(documentId=request.document_id, body={"requests": requests})
+            .execute
         )
 
-        format_details = []
-        if bold is not None:
-            format_details.append(f"bold={bold}")
-        if italic is not None:
-            format_details.append(f"italic={italic}")
-        if underline is not None:
-            format_details.append(f"underline={underline}")
-        if font_size:
-            format_details.append(f"font_size={font_size}")
-        if font_family:
-            format_details.append(f"font_family={font_family}")
-        if text_color:
-            format_details.append(f"text_color={text_color}")
-        if background_color:
-            format_details.append(f"background_color={background_color}")
-
-        operations.append(
-            f"Applied formatting ({', '.join(format_details)}) to range {format_start}-{format_end}"
+        link = f"https://docs.google.com/document/d/{request.document_id}/edit"
+        operation_summary = "; ".join(operations)
+        logger.info(
+            f"Successfully modified doc {request.document_id}: {operation_summary}"
         )
+        return ModifyDocTextResponse(
+            success=True,
+            document_id=request.document_id,
+            operation=operation_summary,
+            web_view_link=link,
+        ).model_dump()
 
-    await asyncio.to_thread(
-        service.documents()
-        .batchUpdate(documentId=document_id, body={"requests": requests})
-        .execute
-    )
-
-    link = f"https://docs.google.com/document/d/{document_id}/edit"
-    operation_summary = "; ".join(operations)
-    text_info = f" Text length: {len(text)} characters." if text else ""
-    return f"{operation_summary} in document {document_id}.{text_info} Link: {link}"
+    except Exception as error:
+        logger.error(f"Failed to modify doc text for {request.document_id}: {error}")
+        return ModifyDocTextResponse(
+            success=False, document_id=request.document_id, error=str(error)
+        ).model_dump()
 
 
 @content_server.tool()
-async def find_and_replace_doc(
-    document_id: str,
-    find_text: str,
-    replace_text: str,
-    match_case: bool = False,
-) -> str:
+async def find_and_replace_doc(request=FindAndReplaceDocRequest) -> dict:
     """
     Finds and replaces text throughout a Google Doc.
 
@@ -585,49 +687,60 @@ async def find_and_replace_doc(
         match_case: Whether to match case exactly
 
     Returns:
-        str: Confirmation message with replacement count
+        dict: A dictionary containing success status, replacement count, and details.
     """
-    service = get_service()
-    logger.info(
-        f"[find_and_replace_doc] Doc={document_id}, find='{find_text}', replace='{replace_text}'"
-    )
 
-    requests = [create_find_replace_request(find_text, replace_text, match_case)]
+    try:
+        service = get_service()
+        logger.info(
+            f"[find_and_replace_doc] Doc={request.document_id}, find='{request.find_text}', replace='{request.replace_text}'"
+        )
 
-    result = await asyncio.to_thread(
-        service.documents()
-        .batchUpdate(documentId=document_id, body={"requests": requests})
-        .execute
-    )
+        requests = [
+            create_find_replace_request(
+                request.find_text, request.replace_text, request.match_case
+            )
+        ]
 
-    # Extract number of replacements from response
-    replacements = 0
-    if "replies" in result and result["replies"]:
-        reply = result["replies"][0]
-        if "replaceAllText" in reply:
-            replacements = reply["replaceAllText"].get("occurrencesChanged", 0)
+        result = await asyncio.to_thread(
+            service.documents()
+            .batchUpdate(documentId=request.document_id, body={"requests": requests})
+            .execute
+        )
 
-    link = f"https://docs.google.com/document/d/{document_id}/edit"
-    return f"Replaced {replacements} occurrence(s) of '{find_text}' with '{replace_text}' in document {document_id}. Link: {link}"
+        # Extract number of replacements from response
+        replacements = 0
+        if "replies" in result and result["replies"]:
+            reply = result["replies"][0]
+            if "replaceAllText" in reply:
+                replacements = reply["replaceAllText"].get("occurrencesChanged", 0)
+
+        link = f"https://docs.google.com/document/d/{request.document_id}/edit"
+        logger.info(f"Replaced {replacements} occurrences in doc {request.document_id}")
+        return FindAndReplaceDocResponse(
+            success=True,
+            document_id=request.document_id,
+            replacements_count=replacements,
+            find_text=request.find_text,
+            replace_text=request.replace_text,
+            web_view_link=link,
+        ).model_dump()
+
+    except Exception as error:
+        logger.error(
+            f"Failed to find and replace in doc {request.document_id}: {error}"
+        )
+        return FindAndReplaceDocResponse(
+            success=False, document_id=request.document_id, error=str(error)
+        ).model_dump()
 
 
 @content_server.tool()
-async def insert_doc_elements(
-    service: Any,
-    user_google_email: str,
-    document_id: str,
-    element_type: str,
-    index: int,
-    rows: int = None,
-    columns: int = None,
-    list_type: str = None,
-    text: str = None,
-) -> str:
+async def insert_doc_elements(request: InsertDocElementsRequest) -> str:
     """
     Inserts structural elements like tables, lists, or page breaks into a Google Doc.
 
     Args:
-        user_google_email: User's Google email address
         document_id: ID of the document to update
         element_type: Type of element to insert ("table", "list", "page_break")
         index: Position to insert element (0-based)
@@ -639,66 +752,107 @@ async def insert_doc_elements(
     Returns:
         str: Confirmation message with insertion details
     """
-    logger.info(
-        f"[insert_doc_elements] Doc={document_id}, type={element_type}, index={index}"
-    )
 
-    # Handle the special case where we can't insert at the first section break
-    # If index is 0, bump it to 1 to avoid the section break
-    if index == 0:
-        logger.debug("Adjusting index from 0 to 1 to avoid first section break")
-        index = 1
+    try:
+        service = get_service()
 
-    requests = []
-
-    if element_type == "table":
-        if not rows or not columns:
-            return "Error: 'rows' and 'columns' parameters are required for table insertion."
-
-        requests.append(create_insert_table_request(index, rows, columns))
-        description = f"table ({rows}x{columns})"
-
-    elif element_type == "list":
-        if not list_type:
-            return "Error: 'list_type' parameter is required for list insertion ('UNORDERED' or 'ORDERED')."
-
-        if not text:
-            text = "List item"
-
-        # Insert text first, then create list
-        requests.extend(
-            [
-                create_insert_text_request(index, text + "\n"),
-                create_bullet_list_request(index, index + len(text), list_type),
-            ]
+        logger.info(
+            f"[insert_doc_elements] Doc={request.document_id}, type={request.element_type}, index={request.index}"
         )
-        description = f"{list_type.lower()} list"
 
-    elif element_type == "page_break":
-        requests.append(create_insert_page_break_request(index))
-        description = "page break"
+        # Handle the special case where we can't insert at the first section break
+        # If index is 0, bump it to 1 to avoid the section break
+        if request.index == 0:
+            logger.debug("Adjusting index from 0 to 1 to avoid first section break")
+            index = 1
 
-    else:
-        return f"Error: Unsupported element type '{element_type}'. Supported types: 'table', 'list', 'page_break'."
+        requests = []
+        description = ""
 
-    await asyncio.to_thread(
-        service.documents()
-        .batchUpdate(documentId=document_id, body={"requests": requests})
-        .execute
-    )
+        if request.element_type == "table":
+            if not request.rows or not request.columns:
+                return InsertDocElementsResponse(
+                    status="error",
+                    document_id=request.document_id,
+                    element_type=request.element_type,
+                    index=index,
+                    web_view_link="",
+                    error="'rows' and 'columns' parameters are required for table insertion.",
+                ).model_dump()
 
-    link = f"https://docs.google.com/document/d/{document_id}/edit"
-    return f"Inserted {description} at index {index} in document {document_id}. Link: {link}"
+            requests.append(
+                create_insert_table_request(index, request.rows, request.columns)
+            )
+            description = f"table ({request.rows}x{request.columns})"
+
+        elif request.element_type == "list":
+            if not request.list_type:
+                return InsertDocElementsResponse(
+                    status="error",
+                    document_id=request.document_id,
+                    element_type=request.element_type,
+                    index=index,
+                    web_view_link="",
+                    error="'list_type' parameter is required for list insertion ('UNORDERED' or 'ORDERED').",
+                ).model_dump()
+
+            list_text = request.text if request.text else "List item"
+
+            # Insert text first, then create list
+            requests.extend(
+                [
+                    create_insert_text_request(index, list_text + "\n"),
+                    create_bullet_list_request(
+                        index, index + len(list_text), request.list_type
+                    ),
+                ]
+            )
+            description = f"{request.list_type.lower()} list"
+
+        elif request.element_type == "page_break":
+            requests.append(create_insert_page_break_request(index))
+            description = "page break"
+
+        else:
+            return InsertDocElementsResponse(
+                status="error",
+                document_id=request.document_id,
+                element_type=request.element_type,
+                index=index,
+                web_view_link="",
+                error=f"Unsupported element_type '{request.element_type}'. Supported types are 'table', 'list', 'page_break'.",
+            ).model_dump()
+
+        await asyncio.to_thread(
+            service.documents()
+            .batchUpdate(documentId=request.document_id, body={"requests": requests})
+            .execute
+        )
+
+        link = f"https://docs.google.com/document/d/{request.document_id}/edit"
+        logger.info(f"Successfully inserted {description} in doc {request.document_id}")
+        return InsertDocElementsResponse(
+            status="success",
+            document_id=request.document_id,
+            element_type=request.element_type,
+            index=index,
+            web_view_link=link,
+        ).model_dump()
+
+    except Exception as error:
+        logger.error(f"Failed to insert element in doc {request.document_id}: {error}")
+        return InsertDocElementsResponse(
+            status="error",
+            document_id=request.document_id,
+            element_type=request.element_type,
+            index=request.index,
+            web_view_link="",
+            error=str(error),
+        ).model_dump()
 
 
 @content_server.tool()
-async def insert_doc_image(
-    document_id: str,
-    image_source: str,
-    index: int,
-    width: int = 0,
-    height: int = 0,
-) -> str:
+async def insert_doc_image(request: InsertDocImageRequest) -> dict:
     """
     Inserts an image into a Google Doc from Drive or a URL.
 
@@ -710,74 +864,104 @@ async def insert_doc_image(
         height: Image height in points (optional)
 
     Returns:
-        str: Confirmation message with insertion details
+        dict: A dictionary containing status, document_id, and operation details.
     """
-    docs_service = get_service()
-    drive_service = drive_get_service()
 
-    logger.info(
-        f"[insert_doc_image] Doc={document_id}, source={image_source}, index={index}"
-    )
+    try:
+        docs_service = get_service()
+        drive_service = drive_get_service()
 
-    # Handle the special case where we can't insert at the first section break
-    # If index is 0, bump it to 1 to avoid the section break
-    if index == 0:
-        logger.debug("Adjusting index from 0 to 1 to avoid first section break")
-        index = 1
+        logger.info(
+            f"[insert_doc_image] Doc={request.document_id}, source={request.image_source}, index={request.index}"
+        )
 
-    # Determine if source is a Drive file ID or URL
-    is_drive_file = not (
-        image_source.startswith("http://") or image_source.startswith("https://")
-    )
+        # Handle the special case where we can't insert at the first section break
+        # If index is 0, bump it to 1 to avoid the section break
+        if request.index == 0:
+            logger.debug("Adjusting index from 0 to 1 to avoid first section break")
+            index = 1
 
-    if is_drive_file:
-        # Verify Drive file exists and get metadata
-        try:
-            file_metadata = await asyncio.to_thread(
-                drive_service.files()
-                .get(
-                    fileId=image_source,
-                    fields="id, name, mimeType",
-                    supportsAllDrives=True,
+        # Determine if source is a Drive file ID or URL
+        is_drive_file = not (
+            request.image_source.startswith("http://")
+            or request.image_source.startswith("https://")
+        )
+
+        if is_drive_file:
+            # Verify Drive file exists and get metadata
+            try:
+                file_metadata = await asyncio.to_thread(
+                    drive_service.files()
+                    .get(
+                        fileId=request.image_source,
+                        fields="id, name, mimeType",
+                        supportsAllDrives=True,
+                    )
+                    .execute
                 )
-                .execute
-            )
-            mime_type = file_metadata.get("mimeType", "")
-            if not mime_type.startswith("image/"):
-                return f"Error: File {image_source} is not an image (MIME type: {mime_type})."
+                mime_type = file_metadata.get("mimeType", "")
+                if not mime_type.startswith("image/"):
+                    return InsertDocImageResponse(
+                        status="error",
+                        document_id=request.document_id,
+                        image_source=request.image_source,
+                        index=request.index,
+                        web_view_link="",
+                        error=f"File {request.image_source} is not an image (MIME type: {mime_type}).",
+                    ).model_dump()
 
-            image_uri = f"https://drive.google.com/uc?id={image_source}"
-            source_description = f"Drive file {file_metadata.get('name', image_source)}"
-        except Exception as e:
-            return f"Error: Could not access Drive file {image_source}: {str(e)}"
-    else:
-        image_uri = image_source
-        source_description = "URL image"
+                image_uri = f"https://drive.google.com/uc?id={request.image_source}"
+                source_description = (
+                    f"Drive file {file_metadata.get('name', request.image_source)}"
+                )
+            except Exception as e:
+                return InsertDocImageResponse(
+                    status="error",
+                    document_id=request.document_id,
+                    image_source=request.image_source,
+                    index=request.index,
+                    web_view_link="",
+                    error=f"Could not access Drive file {request.image_source}: {str(e)}",
+                ).model_dump()
+        else:
+            image_uri = request.image_source
+            source_description = "URL image"
 
-    # Use helper to create image request
-    requests = [create_insert_image_request(index, image_uri, width, height)]
+        # Use helper to create image request
+        requests = [
+            create_insert_image_request(index, image_uri, request.width, request.height)
+        ]
 
-    await asyncio.to_thread(
-        docs_service.documents()
-        .batchUpdate(documentId=document_id, body={"requests": requests})
-        .execute
-    )
+        await asyncio.to_thread(
+            docs_service.documents()
+            .batchUpdate(documentId=request.document_id, body={"requests": requests})
+            .execute
+        )
 
-    size_info = ""
-    if width or height:
-        size_info = f" (size: {width or 'auto'}x{height or 'auto'} points)"
+        link = f"https://docs.google.com/document/d/{request.document_id}/edit"
+        logger.info(f"Successfully inserted image in doc {request.document_id}")
+        return InsertDocImageResponse(
+            status="success",
+            document_id=request.document_id,
+            image_source=request.image_source,
+            index=index,
+            web_view_link=link,
+        ).model_dump()
 
-    link = f"https://docs.google.com/document/d/{document_id}/edit"
-    return f"Inserted {source_description}{size_info} at index {index} in document {document_id}. Link: {link}"
+    except Exception as error:
+        logger.error(f"Failed to insert image in doc {request.document_id}: {error}")
+        return InsertDocImageResponse(
+            status="error",
+            document_id=request.document_id,
+            image_source=request.image_source,
+            index=request.index,
+            web_view_link="",
+            error=str(error),
+        ).model_dump()
 
 
 @content_server.tool()
-async def update_doc_headers_footers(
-    document_id: str,
-    section_type: str,
-    content: str,
-    header_footer_type: str = "DEFAULT",
-) -> str:
+async def update_doc_headers_footers(request: UpdateDocHeadersFootersRequest) -> dict:
     """
     Updates headers or footers in a Google Doc.
 
@@ -788,52 +972,67 @@ async def update_doc_headers_footers(
         header_footer_type: Type of header/footer ("DEFAULT", "FIRST_PAGE_ONLY", "EVEN_PAGE")
 
     Returns:
-        str: Confirmation message with update details
+        dict: A dictionary containing status, document_id, and operation details.
     """
-    service = get_service()
-    logger.info(f"[update_doc_headers_footers] Doc={document_id}, type={section_type}")
 
-    # Input validation
-    validator = ValidationManager()
+    try:
+        service = get_service()
+        logger.info(
+            f"[update_doc_headers_footers] Doc={request.document_id}, type={request.section_type}"
+        )
 
-    is_valid, error_msg = validator.validate_document_id(document_id)
-    if not is_valid:
-        return f"Error: {error_msg}"
+        # Use HeaderFooterManager to handle the complex logic
+        header_footer_manager = HeaderFooterManager(service)
 
-    is_valid, error_msg = validator.validate_header_footer_params(
-        section_type, header_footer_type
-    )
-    if not is_valid:
-        return f"Error: {error_msg}"
+        success, message = await header_footer_manager.update_header_footer_content(
+            request.document_id,
+            request.section_type,
+            request.content,
+            request.header_footer_type,
+        )
 
-    is_valid, error_msg = validator.validate_text_content(content)
-    if not is_valid:
-        return f"Error: {error_msg}"
+        link = f"https://docs.google.com/document/d/{request.document_id}/edit"
+        if success:
+            logger.info(
+                f"Successfully updated header/footer in doc {request.document_id}"
+            )
+            return UpdateDocHeadersFootersResponse(
+                status="success",
+                document_id=request.document_id,
+                section_type=request.section_type,
+                header_footer_type=request.header_footer_type,
+                web_view_link=link,
+            ).model_dump()
+        else:
+            return UpdateDocHeadersFootersResponse(
+                status="error",
+                document_id=request.document_id,
+                section_type=request.section_type,
+                header_footer_type=request.header_footer_type,
+                web_view_link="",
+                error=message,
+            ).model_dump()
 
-    # Use HeaderFooterManager to handle the complex logic
-    header_footer_manager = HeaderFooterManager(service)
-
-    success, message = await header_footer_manager.update_header_footer_content(
-        document_id, section_type, content, header_footer_type
-    )
-
-    if success:
-        link = f"https://docs.google.com/document/d/{document_id}/edit"
-        return f"{message}. Link: {link}"
-    else:
-        return f"Error: {message}"
+    except Exception as error:
+        logger.error(
+            f"Failed to update header/footer in doc {request.document_id}: {error}"
+        )
+        return UpdateDocHeadersFootersResponse(
+            status="error",
+            document_id=request.document_id,
+            section_type=request.section_type,
+            header_footer_type=request.header_footer_type,
+            web_view_link="",
+            error=str(error),
+        ).model_dump()
 
 
 @content_server.tool()
-async def batch_update_doc(
-    document_id: str,
-    operations: List[Dict[str, Any]],
-) -> str:
+async def batch_update_doc(request: BatchUpdateDocRequest) -> dict:
     """
     Executes multiple document operations in a single atomic batch update.
 
     Args:
-
         document_id: ID of the document to update
         operations: List of operation dictionaries. Each operation should contain:
                    - type: Operation type ('insert_text', 'delete_text', 'replace_text', 'format_text', 'insert_table', 'insert_page_break')
@@ -847,42 +1046,54 @@ async def batch_update_doc(
         ]
 
     Returns:
-        str: Confirmation message with batch operation results
+        dict: A dictionary containing status, document_id, and operation results.
     """
-    service = get_service()
-    logger.debug(f"[batch_update_doc] Doc={document_id}, operations={len(operations)}")
 
-    # Input validation
-    validator = ValidationManager()
+    try:
+        service = get_service()
+        logger.debug(
+            f"[batch_update_doc] Doc={request.document_id}, operations={len(request.operations)}"
+        )
 
-    is_valid, error_msg = validator.validate_document_id(document_id)
-    if not is_valid:
-        return f"Error: {error_msg}"
+        # Use BatchOperationManager to handle the complex logic
+        batch_manager = BatchOperationManager(service)
 
-    is_valid, error_msg = validator.validate_batch_operations(operations)
-    if not is_valid:
-        return f"Error: {error_msg}"
+        success, message, metadata = await batch_manager.execute_batch_operations(
+            request.document_id, request.operations
+        )
 
-    # Use BatchOperationManager to handle the complex logic
-    batch_manager = BatchOperationManager(service)
-
-    success, message, metadata = await batch_manager.execute_batch_operations(
-        document_id, operations
-    )
-
-    if success:
-        link = f"https://docs.google.com/document/d/{document_id}/edit"
-        replies_count = metadata.get("replies_count", 0)
-        return f"{message} on document {document_id}. API replies: {replies_count}. Link: {link}"
-    else:
-        return f"Error: {message}"
+        link = f"https://docs.google.com/document/d/{request.document_id}/edit"
+        if success:
+            logger.info(
+                f"Successfully executed batch operations on doc {request.document_id}"
+            )
+            return BatchUpdateDocResponse(
+                status="success",
+                document_id=request.document_id,
+                operations_count=len(request.operations),
+                web_view_link=link,
+            ).model_dump()
+        else:
+            return BatchUpdateDocResponse(
+                status="error",
+                document_id=request.document_id,
+                operations_count=len(request.operations),
+                web_view_link="",
+                error=message,
+            ).model_dump()
+    except Exception as error:
+        logger.error(f"Failed to batch update doc {request.document_id}: {error}")
+        return BatchUpdateDocResponse(
+            status="error",
+            document_id=request.document_id,
+            operations_count=len(request.operations),
+            web_view_link="",
+            error=str(error),
+        ).model_dump()
 
 
 @content_server.tool()
-async def inspect_doc_structure(
-    document_id: str,
-    detailed: bool = False,
-) -> str:
+async def inspect_doc_structure(request: InspectDocStructureRequest) -> str:
     """
     Essential tool for finding safe insertion points and understanding document structure.
 
@@ -908,24 +1119,39 @@ async def inspect_doc_structure(
     Step 4: Create your table
 
     Args:
-        user_google_email: User's Google email address
         document_id: ID of the document to inspect
         detailed: Whether to return detailed structure information
 
     Returns:
         str: JSON string containing document structure and safe insertion indices
     """
-    service = get_service()
-    logger.debug(f"[inspect_doc_structure] Doc={document_id}, detailed={detailed}")
+    try:
+        request = InspectDocStructureRequest(
+            document_id=request.document_id,
+            detailed=request.detailed,
+        )
+    except Exception as error:
+        return InspectDocStructureResponse(
+            status="error",
+            document_id=request.document_id,
+            structure={},
+            error=str(error),
+        ).model_dump()
 
-    # Get the document
-    doc = await asyncio.to_thread(
-        service.documents().get(documentId=document_id).execute
-    )
+    try:
+        service = get_service()
+        logger.debug(
+            f"[inspect_doc_structure] Doc={request.document_id}, detailed={request.detailed}"
+        )
 
-    if detailed:
-        # Return full parsed structure
-        structure = parse_document_structure(doc)
+        # Get the document
+        doc = await asyncio.to_thread(
+            service.documents().get(documentId=request.document_id).execute
+        )
+
+        if request.detailed:
+            # Return full parsed structure
+            structure = parse_document_structure(doc)
 
         # Simplify for JSON serialization
         result = {
@@ -980,36 +1206,48 @@ async def inspect_doc_structure(
                     }
                 )
 
-    else:
-        # Return basic analysis
-        result = analyze_document_complexity(doc)
+        else:
+            # Return basic analysis
+            result = analyze_document_complexity(doc)
 
-        # Add table information
-        tables = find_tables(doc)
-        if tables:
-            result["table_details"] = []
-            for i, table in enumerate(tables):
-                result["table_details"].append(
-                    {
-                        "index": i,
-                        "rows": table["rows"],
-                        "columns": table["columns"],
-                        "start_index": table["start_index"],
-                        "end_index": table["end_index"],
-                    }
-                )
+            # Add table information
+            tables = find_tables(doc)
+            if tables:
+                result["table_details"] = []
+                for i, table in enumerate(tables):
+                    result["table_details"].append(
+                        {
+                            "index": i,
+                            "rows": table["rows"],
+                            "columns": table["columns"],
+                            "start_index": table["start_index"],
+                            "end_index": table["end_index"],
+                        }
+                    )
 
-    link = f"https://docs.google.com/document/d/{document_id}/edit"
-    return f"Document structure analysis for {document_id}:\n\n{json.dumps(result, indent=2)}\n\nLink: {link}"
+            logger.info(
+                f"Successfully inspected structure of doc {request.document_id}"
+            )
+            return InspectDocStructureResponse(
+                status="success",
+                document_id=request.document_id,
+                structure=result,
+            ).model_dump()
+
+    except Exception as error:
+        logger.error(
+            f"Failed to inspect doc structure for {request.document_id}: {error}"
+        )
+        return InspectDocStructureResponse(
+            status="error",
+            document_id=request.document_id,
+            structure={},
+            error=str(error),
+        ).model_dump()
 
 
 @content_server.tool()
-async def create_table_with_data(
-    document_id: str,
-    table_data: List[List[str]],
-    index: int,
-    bold_headers: bool = True,
-) -> str:
+async def create_table_with_data(request: CreateTableWithDataRequest) -> str:
     """
     Creates a table and populates it with data in one reliable operation.
 
@@ -1042,7 +1280,6 @@ async def create_table_with_data(
     - Use debug_table_structure after creation to verify results
 
     Args:
-        user_google_email: User's Google email address
         document_id: ID of the document to update
         table_data: 2D list of strings - EXACT format: [["col1", "col2"], ["row1col1", "row1col2"]]
         index: Document position (MANDATORY: get from inspect_doc_structure 'total_length')
@@ -1051,58 +1288,72 @@ async def create_table_with_data(
     Returns:
         str: Confirmation with table details and link
     """
-    service = get_service()
-    logger.debug(f"[create_table_with_data] Doc={document_id}, index={index}")
 
-    # Input validation
-    validator = ValidationManager()
-
-    is_valid, error_msg = validator.validate_document_id(document_id)
-    if not is_valid:
-        return f"ERROR: {error_msg}"
-
-    is_valid, error_msg = validator.validate_table_data(table_data)
-    if not is_valid:
-        return f"ERROR: {error_msg}"
-
-    is_valid, error_msg = validator.validate_index(index, "Index")
-    if not is_valid:
-        return f"ERROR: {error_msg}"
-
-    # Use TableOperationManager to handle the complex logic
-    table_manager = TableOperationManager(service)
-
-    # Try to create the table, and if it fails due to index being at document end, retry with index-1
-    success, message, metadata = await table_manager.create_and_populate_table(
-        document_id, table_data, index, bold_headers
-    )
-
-    # If it failed due to index being at or beyond document end, retry with adjusted index
-    if not success and "must be less than the end index" in message:
+    try:
+        service = get_service()
         logger.debug(
-            f"Index {index} is at document boundary, retrying with index {index - 1}"
+            f"[create_table_with_data] Doc={request.document_id}, index={request.index}"
         )
+
+        # Use TableOperationManager to handle the complex logic
+        table_manager = TableOperationManager(service)
+
+        # Try to create the table, and if it fails due to index being at document end, retry with index-1
         success, message, metadata = await table_manager.create_and_populate_table(
-            document_id, table_data, index - 1, bold_headers
+            request.document_id, request.table_data, request.index, request.bold_headers
         )
 
-    if success:
-        link = f"https://docs.google.com/document/d/{document_id}/edit"
-        rows = metadata.get("rows", 0)
-        columns = metadata.get("columns", 0)
+        # If it failed due to index being at or beyond document end, retry with adjusted index
+        if not success and "must be less than the end index" in message:
+            logger.debug(
+                f"Index {request.index} is at document boundary, retrying with index {request.index - 1}"
+            )
+            success, message, metadata = await table_manager.create_and_populate_table(
+                request.document_id,
+                request.table_data,
+                request.index - 1,
+                request.bold_headers,
+            )
 
-        return (
-            f"SUCCESS: {message}. Table: {rows}x{columns}, Index: {index}. Link: {link}"
+        link = f"https://docs.google.com/document/d/{request.document_id}/edit"
+        rows = metadata.get("rows", len(request.table_data))
+        columns = metadata.get(
+            "columns", len(request.table_data[0]) if request.table_data else 0
         )
-    else:
-        return f"ERROR: {message}"
+
+        if success:
+            logger.info(f"Successfully created table in doc {request.document_id}")
+            return CreateTableWithDataResponse(
+                status="success",
+                document_id=request.document_id,
+                rows=rows,
+                columns=columns,
+                web_view_link=link,
+            ).model_dump()
+        else:
+            return CreateTableWithDataResponse(
+                status="error",
+                document_id=request.document_id,
+                rows=rows,
+                columns=columns,
+                web_view_link="",
+                error=message,
+            ).model_dump()
+
+    except Exception as error:
+        logger.error(f"Failed to create table in doc {request.document_id}: {error}")
+        return CreateTableWithDataResponse(
+            status="error",
+            document_id=request.document_id,
+            rows=0,
+            columns=0,
+            web_view_link="",
+            error=str(error),
+        ).model_dump()
 
 
 @content_server.tool()
-async def debug_table_structure(
-    document_id: str,
-    table_index: int = 0,
-) -> str:
+async def debug_table_structure(request: DebugTableStructureRequest) -> str:
     """
     ESSENTIAL DEBUGGING TOOL - Use this whenever tables don't work as expected.
 
@@ -1133,61 +1384,83 @@ async def debug_table_structure(
     4. When debugging → Compare your data array to actual table structure
 
     Args:
-        user_google_email: User's Google email address
         document_id: ID of the document to inspect
         table_index: Which table to debug (0 = first table, 1 = second table, etc.)
 
     Returns:
         str: Detailed JSON structure showing table layout, cell positions, and current content
     """
-    service = get_service()
-    logger.debug(
-        f"[debug_table_structure] Doc={document_id}, table_index={table_index}"
-    )
 
-    # Get the document
-    doc = await asyncio.to_thread(
-        service.documents().get(documentId=document_id).execute
-    )
+    try:
+        service = get_service()
+        logger.debug(
+            f"[debug_table_structure] Doc={request.document_id}, table_index={request.table_index}"
+        )
 
-    # Find tables
-    tables = find_tables(doc)
-    if table_index >= len(tables):
-        return f"Error: Table index {table_index} not found. Document has {len(tables)} table(s)."
+        # Get the document
+        doc = await asyncio.to_thread(
+            service.documents().get(documentId=request.document_id).execute
+        )
 
-    table_info = tables[table_index]
+        # Find tables
+        tables = find_tables(doc)
+        if request.table_index >= len(tables):
+            return DebugTableStructureResponse(
+                status="error",
+                document_id=request.document_id,
+                table_index=request.table_index,
+                structure={},
+                error=f"Table index {request.table_index} not found. Document has {len(tables)} table(s).",
+            ).model_dump()
 
-    # Extract detailed cell information
-    debug_info = {
-        "table_index": table_index,
-        "dimensions": f"{table_info['rows']}x{table_info['columns']}",
-        "table_range": f"[{table_info['start_index']}-{table_info['end_index']}]",
-        "cells": [],
-    }
+        table_info = tables[request.table_index]
 
-    for row_idx, row in enumerate(table_info["cells"]):
-        row_info = []
-        for col_idx, cell in enumerate(row):
-            cell_debug = {
-                "position": f"({row_idx},{col_idx})",
-                "range": f"[{cell['start_index']}-{cell['end_index']}]",
-                "insertion_index": cell.get("insertion_index", "N/A"),
-                "current_content": repr(cell.get("content", "")),
-                "content_elements_count": len(cell.get("content_elements", [])),
-            }
-            row_info.append(cell_debug)
-        debug_info["cells"].append(row_info)
+        # Extract detailed cell information
+        debug_info = {
+            "table_index": request.table_index,
+            "dimensions": f"{table_info['rows']}x{table_info['columns']}",
+            "table_range": f"[{table_info['start_index']}-{table_info['end_index']}]",
+            "cells": [],
+        }
 
-    link = f"https://docs.google.com/document/d/{document_id}/edit"
-    return f"Table structure debug for table {table_index}:\n\n{json.dumps(debug_info, indent=2)}\n\nLink: {link}"
+        for row_idx, row in enumerate(table_info["cells"]):
+            row_info = []
+            for col_idx, cell in enumerate(row):
+                cell_debug = {
+                    "position": f"({row_idx},{col_idx})",
+                    "range": f"[{cell['start_index']}-{cell['end_index']}]",
+                    "insertion_index": cell.get("insertion_index", "N/A"),
+                    "current_content": repr(cell.get("content", "")),
+                    "content_elements_count": len(cell.get("content_elements", [])),
+                }
+                row_info.append(cell_debug)
+            debug_info["cells"].append(row_info)
+
+        logger.info(
+            f"Successfully debugged table {request.table_index} in doc {request.document_id}"
+        )
+        return DebugTableStructureResponse(
+            status="success",
+            document_id=request.document_id,
+            table_index=request.table_index,
+            structure=debug_info,
+        ).model_dump()
+
+    except Exception as error:
+        logger.error(
+            f"Failed to debug table structure for doc {request.document_id}: {error}"
+        )
+        return DebugTableStructureResponse(
+            status="error",
+            document_id=request.document_id,
+            table_index=request.table_index,
+            structure={},
+            error=str(error),
+        ).model_dump()
 
 
 @content_server.tool()
-async def export_doc_to_pdf(
-    document_id: str,
-    pdf_filename: str = None,
-    folder_id: str = None,
-) -> str:
+async def export_doc_to_pdf(request: ExportDocToPdfRequest) -> dict:
     """
     Exports a Google Doc to PDF format and saves it to Google Drive.
 
@@ -1197,106 +1470,139 @@ async def export_doc_to_pdf(
         folder_id: Drive folder ID to save PDF in (optional - if not provided, saves in root)
 
     Returns:
-        str: Confirmation message with PDF file details and links
+        dict: A dictionary containing status, document_id, and PDF details.
     """
-    service = get_service()
-    logger.info(
-        f"[export_doc_to_pdf] Doc={document_id}, pdf_filename={pdf_filename}, folder_id={folder_id}"
-    )
 
-    # Get file metadata first to validate it's a Google Doc
     try:
-        file_metadata = await asyncio.to_thread(
-            service.files()
-            .get(
-                fileId=document_id,
-                fields="id, name, mimeType, webViewLink",
-                supportsAllDrives=True,
-            )
-            .execute
-        )
-    except Exception as e:
-        return f"Error: Could not access document {document_id}: {str(e)}"
-
-    mime_type = file_metadata.get("mimeType", "")
-    original_name = file_metadata.get("name", "Unknown Document")
-    web_view_link = file_metadata.get("webViewLink", "#")
-
-    # Verify it's a Google Doc
-    if mime_type != "application/vnd.google-apps.document":
-        return f"Error: File '{original_name}' is not a Google Doc (MIME type: {mime_type}). Only native Google Docs can be exported to PDF."
-
-    logger.info(f"[export_doc_to_pdf] Exporting '{original_name}' to PDF")
-
-    # Export the document as PDF
-    try:
-        request_obj = service.files().export_media(
-            fileId=document_id, mimeType="application/pdf", supportsAllDrives=True
-        )
-
-        fh = io.BytesIO()
-        downloader = MediaIoBaseDownload(fh, request_obj)
-
-        done = False
-        while not done:
-            _, done = await asyncio.to_thread(downloader.next_chunk)
-
-        pdf_content = fh.getvalue()
-        pdf_size = len(pdf_content)
-
-    except Exception as e:
-        return f"Error: Failed to export document to PDF: {str(e)}"
-
-    # Determine PDF filename
-    if not pdf_filename:
-        pdf_filename = f"{original_name}_PDF.pdf"
-    elif not pdf_filename.endswith(".pdf"):
-        pdf_filename += ".pdf"
-
-    # Upload PDF to Drive
-    try:
-        # Reuse the existing BytesIO object by resetting to the beginning
-        fh.seek(0)
-        # Create media upload object
-        media = MediaIoBaseUpload(fh, mimetype="application/pdf", resumable=True)
-
-        # Prepare file metadata for upload
-        file_metadata = {"name": pdf_filename, "mimeType": "application/pdf"}
-
-        # Add parent folder if specified
-        if folder_id:
-            file_metadata["parents"] = [folder_id]
-
-        # Upload the file
-        uploaded_file = await asyncio.to_thread(
-            service.files()
-            .create(
-                body=file_metadata,
-                media_body=media,
-                fields="id, name, webViewLink, parents",
-                supportsAllDrives=True,
-            )
-            .execute
-        )
-
-        pdf_file_id = uploaded_file.get("id")
-        pdf_web_link = uploaded_file.get("webViewLink", "#")
-        pdf_parents = uploaded_file.get("parents", [])
-
+        service = get_service()
         logger.info(
-            f"[export_doc_to_pdf] Successfully uploaded PDF to Drive: {pdf_file_id}"
+            f"[export_doc_to_pdf] Doc={request.document_id}, pdf_filename={request.pdf_filename}, folder_id={request.folder_id}"
         )
 
-        folder_info = ""
-        if folder_id:
-            folder_info = f" in folder {folder_id}"
-        elif pdf_parents:
-            folder_info = f" in folder {pdf_parents[0]}"
+        # Get file metadata first to validate it's a Google Doc
+        try:
+            file_metadata = await asyncio.to_thread(
+                service.files()
+                .get(
+                    fileId=request.document_id,
+                    fields="id, name, mimeType, webViewLink",
+                    supportsAllDrives=True,
+                )
+                .execute
+            )
+        except Exception as e:
+            return ExportDocToPdfResponse(
+                status="error",
+                document_id=request.document_id,
+                pdf_filename=request.pdf_filename or "",
+                error=f"Could not access document: {str(e)}",
+            ).model_dump()
 
-        return f"Successfully exported '{original_name}' to PDF and saved to Drive as '{pdf_filename}' (ID: {pdf_file_id}, {pdf_size:,} bytes){folder_info}. PDF: {pdf_web_link} | Original: {web_view_link}"
+        mime_type = file_metadata.get("mimeType", "")
+        original_name = file_metadata.get("name", "Unknown Document")
+        web_view_link = file_metadata.get("webViewLink", "#")
 
-    except Exception as e:
-        return f"Error: Failed to upload PDF to Drive: {str(e)}. PDF was generated successfully ({pdf_size:,} bytes) but could not be saved to Drive."
+        # Verify it's a Google Doc
+        if mime_type != "application/vnd.google-apps.document":
+            return ExportDocToPdfResponse(
+                status="error",
+                document_id=request.document_id,
+                pdf_filename=request.pdf_filename or "",
+                error=f"File '{original_name}' is not a Google Doc (MIME type: {mime_type}). Only native Google Docs can be exported to PDF.",
+            ).model_dump()
+
+        logger.info(f"[export_doc_to_pdf] Exporting '{original_name}' to PDF")
+
+        # Export the document as PDF
+        try:
+            request_obj = service.files().export_media(
+                fileId=request.document_id,
+                mimeType="application/pdf",
+                supportsAllDrives=True,
+            )
+
+            fh = io.BytesIO()
+            downloader = MediaIoBaseDownload(fh, request_obj)
+
+            done = False
+            while not done:
+                _, done = await asyncio.to_thread(downloader.next_chunk)
+
+            pdf_content = fh.getvalue()
+            pdf_size = len(pdf_content)
+
+        except Exception as e:
+            return ExportDocToPdfResponse(
+                status="error",
+                document_id=request.document_id,
+                pdf_filename=request.pdf_filename or "",
+                error=f"Failed to export document to PDF: {str(e)}",
+            ).model_dump()
+
+        # Determine PDF filename
+        final_pdf_filename = request.pdf_filename
+        if not final_pdf_filename:
+            final_pdf_filename = f"{original_name}_PDF.pdf"
+        elif not final_pdf_filename.endswith(".pdf"):
+            final_pdf_filename += ".pdf"
+
+        # Upload PDF to Drive
+        try:
+            # Reuse the existing BytesIO object by resetting to the beginning
+            fh.seek(0)
+            # Create media upload object
+            media = MediaIoBaseUpload(fh, mimetype="application/pdf", resumable=True)
+
+            # Prepare file metadata for upload
+            file_metadata = {"name": final_pdf_filename, "mimeType": "application/pdf"}
+
+            # Add parent folder if specified
+            if request.folder_id:
+                file_metadata["parents"] = [request.folder_id]
+
+            # Upload the file
+            uploaded_file = await asyncio.to_thread(
+                service.files()
+                .create(
+                    body=file_metadata,
+                    media_body=media,
+                    fields="id, name, webViewLink, parents",
+                    supportsAllDrives=True,
+                )
+                .execute
+            )
+
+            pdf_file_id = uploaded_file.get("id")
+            pdf_web_link = uploaded_file.get("webViewLink", "#")
+
+            logger.info(
+                f"[export_doc_to_pdf] Successfully uploaded PDF to Drive: {pdf_file_id}"
+            )
+
+            return ExportDocToPdfResponse(
+                status="success",
+                document_id=request.document_id,
+                pdf_id=pdf_file_id,
+                pdf_filename=final_pdf_filename,
+                web_view_link=pdf_web_link,
+            ).model_dump()
+
+        except Exception as e:
+            return ExportDocToPdfResponse(
+                status="error",
+                document_id=request.document_id,
+                pdf_filename=final_pdf_filename,
+                error=f"Failed to upload PDF to Drive: {str(e)}. PDF was generated successfully ({pdf_size:,} bytes) but could not be saved to Drive.",
+            ).model_dump()
+
+    except Exception as error:
+        logger.error(f"Failed to export doc to PDF for {request.document_id}: {error}")
+        return ExportDocToPdfResponse(
+            status="error",
+            document_id=request.document_id,
+            pdf_filename=request.pdf_filename or "",
+            error=str(error),
+        ).model_dump()
 
 
 # Create comment management tools for documents
