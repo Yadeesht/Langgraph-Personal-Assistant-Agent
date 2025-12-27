@@ -37,11 +37,11 @@ async def main():
 
         content_client = MultiServerMCPClient(content_config)
         content_tools = await content_client.get_tools()
-        logger.info(f"✅ Content Tools: {len(content_tools)}")
+        logger.info(f"📺 Content Tools: {len(content_tools)}")
 
         supervisor_client = MultiServerMCPClient(supervisor_config)
         supervisor_tools = await supervisor_client.get_tools()
-        logger.info(f"✅ Supervisor Tools: {len(supervisor_tools)}")
+        logger.info(f"🔍 Supervisor Tools: {len(supervisor_tools)}")
 
         tool_sets = {
             "communication": communication_tools,
