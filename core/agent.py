@@ -1,5 +1,6 @@
 import json
 from datetime import datetime
+import httpx
 
 import pytz
 from langchain_core.messages import (
@@ -55,7 +56,34 @@ def agent_node_factory(llm_with_tools, system_prompt, agent_name: str):
 
         logger.info("=" * 80)
 
-        msg = llm_with_tools.invoke(messages)
+        try:
+            msg = llm_with_tools.invoke(messages)
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 429:
+                logger.error("🚫 Rate limit hit - stopping execution")
+                return {
+                    "messages": [
+                        AIMessage(
+                            content="[ERROR] Rate limit reached. Please retry later.",
+                            name=agent_name,
+                        )
+                    ]
+                }
+            logger.error(f"HTTP error: {e}")
+            raise
+        except httpx.RequestError as e:
+            logger.error(f"🚫 Network error - no internet connection: {e}")
+            return {
+                "messages": [
+                    AIMessage(
+                        content="[ERROR] Network unavailable. Check connection.",
+                        name=agent_name,
+                    )
+                ]
+            }
+        except Exception as e:
+            logger.error(f"Unexpected error: {e}")
+            raise
 
         current_time = get_current_time()
 

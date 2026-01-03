@@ -3,6 +3,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
 import re
 import json
+import httpx
 from config.prompts import (
     COMMUNICATION_SYSTEM_PROMPT,
     PLANNING_SYSTEM_PROMPT,
@@ -11,7 +12,7 @@ from config.prompts import (
 )
 from core.agent import agent_node_factory, human_node, route_after_human
 from core.llm import build_llm_with_tools
-from core.state import Route, State, route_after_supervisor, internal_agent_route
+from core.state import State, route_after_supervisor, internal_agent_route
 from utils.logger import request_counter, setup_logger
 from utils.token_counter import count_tokens
 
@@ -73,68 +74,82 @@ def build_graph(tool_sets, checkpointer):
         try:
             system_msg = SystemMessage(content=SUPERVISOR_SYSTEM_PROMPT)
             response = supervisor_llm.invoke([system_msg] + state["messages"])
-
-            # CASE A: The Supervisor wants to use a Tool (e.g., Search)
-            if response.tool_calls:
-                logger.info(
-                    f"🔎 Supervisor is researching: {len(response.tool_calls)} tool calls"
-                )
-                for i, tool_call in enumerate(response.tool_calls, 1):
-                    logger.info(f"   Tool #{i}:")
-                    logger.info(f"      Name: {tool_call.get('name', 'N/A')}")
-                    logger.info(
-                        f"      Args: {json.dumps(tool_call.get('args', {}), indent=10)}"
-                    )
-                    logger.info(f"      ID: {tool_call.get('id', 'N/A')}")
-
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 429:
+                logger.error("🚫 Rate limit hit in supervisor - stopping")
                 return {
-                    "next": "supervisor_tools",  # New internal route
-                    "messages": [response],
+                    "next": "FINISH",
+                    "messages": [AIMessage(content="[ERROR] Rate limit reached.")],
                 }
-
-            # CASE B: The Supervisor outputted Text (Routing JSON or Direct Reply)
-            content = response.content
-
-            json_match = re.search(r"\{.*\}", content, re.DOTALL)
-
-            if json_match:
-                try:
-                    parsed = json.loads(json_match.group(0))
-                    step = parsed.get("step", "FINISH")
-
-                    logger.info(f"➡ Supervisor Routing to: {step}")
-                    return {"next": step, "messages": [response]}
-                except Exception as e:
-                    response = (
-                        f"Error in json parsing tried to route to other agent: {e}"
-                    )
-                    return {
-                        "next": "supervisor",
-                        "messages": [response],
-                    }
-
-            # CASE C: Direct Reply (No Tools, No JSON)
-            # The Supervisor decided to answer the user directly
-            logger.info("🗣️ Supervisor responding directly")
-            if (
-                hasattr(response, "content")
-                and response.content
-                and not response.tool_calls
-            ):
-                content_preview = (
-                    response.content[:1000] + "..."
-                    if len(response.content) > 100000
-                    else response.content
-                )
-                logger.info(f"📄 Response content: {content_preview}")
+            logger.error(f"HTTP error in supervisor: {e}")
+            return {"next": "FINISH", "messages": [AIMessage(content=f"[ERROR] {e}")]}
+        except httpx.RequestError as e:
+            logger.error(f"🚫 Network error in supervisor: {e}")
             return {
-                "next": "FINISH",  # Or loop back to Human
-                "messages": [response],
+                "next": "FINISH",
+                "messages": [AIMessage(content="[ERROR] Network unavailable.")],
             }
         except Exception as e:
             logger.error(f"Error in supervisor_node: {e}")
-            output = f"Error in supervisor_node: {e}"
-            return {"next": "supervisor", "messages": output}
+            return {
+                "next": "supervisor",
+                "messages": [AIMessage(content=f"Error: {e}")],
+            }
+
+            # CASE A: The Supervisor wants to use a Tool (e.g., Search)
+        if response.tool_calls:
+            logger.info(
+                f"🔎 Supervisor is researching: {len(response.tool_calls)} tool calls"
+            )
+            for i, tool_call in enumerate(response.tool_calls, 1):
+                logger.info(f"   Tool #{i}:")
+                logger.info(f"      Name: {tool_call.get('name', 'N/A')}")
+                logger.info(
+                    f"      Args: {json.dumps(tool_call.get('args', {}), indent=10)}"
+                )
+                logger.info(f"      ID: {tool_call.get('id', 'N/A')}")
+
+            return {
+                "next": "supervisor_tools",  # New internal route
+                "messages": [response],
+            }
+
+        # CASE B: The Supervisor outputted Text (Routing JSON or Direct Reply)
+        content = response.content
+        json_match = re.search(r"\{.*\}", content, re.DOTALL)
+
+        if json_match:
+            try:
+                parsed = json.loads(json_match.group(0))
+                step = parsed.get("step", "FINISH")
+
+                logger.info(f"➡ Supervisor Routing to: {step}")
+                return {"next": step, "messages": [response]}
+            except Exception as e:
+                response = f"Error in json parsing tried to route to other agent: {e}"
+                return {
+                    "next": "supervisor",
+                    "messages": [response],
+                }
+
+        # CASE C: Direct Reply (No Tools, No JSON)
+        # The Supervisor decided to answer the user directly
+        logger.info("🗣️ Supervisor responding directly")
+        if (
+            hasattr(response, "content")
+            and response.content
+            and not response.tool_calls
+        ):
+            content_preview = (
+                response.content[:1000] + "..."
+                if len(response.content) > 100000
+                else response.content
+            )
+            logger.info(f"📄 Response content: {content_preview}")
+        return {
+            "next": "FINISH",  # Or loop back to Human
+            "messages": [response],
+        }
 
     builder = StateGraph(State)
 
