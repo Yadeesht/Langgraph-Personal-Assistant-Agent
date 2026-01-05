@@ -29,7 +29,7 @@ def sanitize_history(messages):
                     "role": "tool",
                     "tool_call_id": msg.tool_call_id,
                     "result": msg.content,
-                    "is_error": "error" in msg.content.lower(),
+                    "is_error": msg.content[0],
                 }
             )
 
