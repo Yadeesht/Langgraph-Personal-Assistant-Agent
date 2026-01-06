@@ -7,7 +7,7 @@ in Google Docs, extracting complex logic from the main tools module.
 
 import asyncio
 from typing import Any, Optional
-from utils.logger import setup_logger
+from utils.helper import setup_logger
 
 logger = setup_logger(__name__)
 

@@ -12,7 +12,7 @@ from MCP.helper.docs_helper import (
     validate_table_data,
     find_tables,
 )
-from utils.logger import setup_logger
+from utils.helper import setup_logger
 
 logger = setup_logger(__name__)
 

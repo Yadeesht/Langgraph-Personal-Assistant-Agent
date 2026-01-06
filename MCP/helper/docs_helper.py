@@ -6,7 +6,7 @@ to simplify the implementation of document editing tools.
 """
 
 from typing import Dict, Any, Optional, Tuple, List, Union
-from utils.logger import setup_logger
+from utils.helper import setup_logger
 
 logger = setup_logger(__name__)
 

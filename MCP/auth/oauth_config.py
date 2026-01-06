@@ -57,7 +57,7 @@ def get_temp_file_strategy() -> str:
 
 def log_environment_info():
     """Log current environment configuration for debugging."""
-    from utils.logger import setup_logger
+    from utils.helper import setup_logger
 
     logger = setup_logger(__name__)
 

@@ -20,7 +20,7 @@ from MCP.helper.docs_helper import (
     create_insert_page_break_request,
     validate_operation,
 )
-from utils.logger import setup_logger
+from utils.helper import setup_logger
 
 logger = setup_logger(__name__)
 

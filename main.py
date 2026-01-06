@@ -15,7 +15,7 @@ from config.settings import (
 
 from core.graph import build_graph
 from utils.checkpointer import CleaningAsyncSqliteSaver
-from utils.logger import request_counter, setup_logger
+from utils.helper import request_counter, setup_logger
 
 logger = setup_logger(__name__)
 

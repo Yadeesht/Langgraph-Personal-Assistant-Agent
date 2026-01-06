@@ -23,7 +23,7 @@ from MCP.helper.pydantic_models import (
     GetPageThumbnailRequest,
     GetPageThumbnailResponse,
 )
-from utils.logger import setup_logger
+from utils.helper import setup_logger
 
 logger = setup_logger(__name__)
 

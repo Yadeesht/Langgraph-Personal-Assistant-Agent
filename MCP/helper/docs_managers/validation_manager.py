@@ -6,7 +6,7 @@ extracting validation patterns from individual tool functions.
 """
 
 from typing import Dict, Any, List, Tuple, Optional
-from utils.logger import setup_logger
+from utils.helper import setup_logger
 
 logger = setup_logger(__name__)
 
