@@ -80,21 +80,43 @@ def build_graph(tool_sets, checkpointer):
                 logger.error("🚫 Rate limit hit in supervisor - stopping")
                 return {
                     "next": "FINISH",
-                    "messages": [AIMessage(content="[ERROR] Rate limit reached.")],
+                    "messages": [
+                        AIMessage(
+                            content="[ERROR] Rate limit reached.",
+                            additional_kwargs={"name": agent_name},
+                        )
+                    ],
                 }
             logger.error(f"HTTP error in supervisor: {e}")
-            return {"next": "FINISH", "messages": [AIMessage(content=f"[ERROR] {e}")]}
+            return {
+                "next": "FINISH",
+                "messages": [
+                    AIMessage(
+                        content=f"[ERROR] {e}",
+                        additional_kwargs={"name": agent_name},
+                    )
+                ],
+            }
         except httpx.RequestError as e:
             logger.error(f"🚫 Network error in supervisor: {e}")
             return {
                 "next": "FINISH",
-                "messages": [AIMessage(content="[ERROR] Network unavailable.")],
+                "messages": [
+                    AIMessage(
+                        content="[ERROR] Network unavailable.",
+                        additional_kwargs={"name": agent_name},
+                    )
+                ],
             }
         except Exception as e:
             logger.error(f"Error in supervisor_node: {e}")
             return {
                 "next": "supervisor",
-                "messages": [AIMessage(content=f"Error: {e}")],
+                "messages": [
+                    AIMessage(
+                        content=f"Error: {e}", additional_kwargs={"name": agent_name}
+                    ),
+                ],
             }
 
             # CASE A: The Supervisor wants to use a Tool (e.g., Search)
@@ -110,9 +132,15 @@ def build_graph(tool_sets, checkpointer):
                 )
                 logger.info(f"      ID: {tool_call.get('id', 'N/A')}")
 
+            agent_message = AIMessage(
+                content=response.content,
+                tool_calls=getattr(response, "tool_calls", []),
+                additional_kwargs={"name": agent_name},
+            )
+
             return {
                 "next": "supervisor_tools",  # New internal route
-                "messages": [response],
+                "messages": [agent_message],
             }
 
         # CASE B: The Supervisor outputted Text (Routing JSON or Direct Reply)
@@ -124,13 +152,24 @@ def build_graph(tool_sets, checkpointer):
                 parsed = json.loads(json_match.group(0))
                 step = parsed.get("step", "FINISH")
 
+                agent_message = AIMessage(
+                    content=response.content,
+                    additional_kwargs={"name": agent_name},
+                )
+
                 logger.info(f"➡ Supervisor Routing to: {step}")
-                return {"next": step, "messages": [response]}
+                return {"next": step, "messages": [agent_message]}
             except Exception as e:
                 response = f"Error in json parsing tried to route to other agent: {e}"
+
+                agent_message = AIMessage(
+                    content=response,
+                    additional_kwargs={"name": agent_name},
+                )
+
                 return {
                     "next": "supervisor",
-                    "messages": [response],
+                    "messages": [agent_message],
                 }
 
         # CASE C: Direct Reply (No Tools, No JSON)
@@ -147,9 +186,13 @@ def build_graph(tool_sets, checkpointer):
                 else response.content
             )
             logger.info(f"📄 Response content: {content_preview}")
+            agent_message = AIMessage(
+                content=response.content,
+                additional_kwargs={"name": agent_name},
+            )
         return {
             "next": "FINISH",  # Or loop back to Human
-            "messages": [response],
+            "messages": [agent_message],
         }
 
     builder = StateGraph(State)

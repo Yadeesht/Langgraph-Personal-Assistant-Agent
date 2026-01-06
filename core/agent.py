@@ -128,7 +128,7 @@ def agent_node_factory(llm_with_tools, system_prompt, agent_name: str):
             tool_calls=getattr(msg, "tool_calls", []),
             additional_kwargs={"name": agent_name},
         )
-        logger.info(f"🚀 LLM sends this: {agent_message}")
+
         return {"messages": [agent_message]}
 
     return agent_node
