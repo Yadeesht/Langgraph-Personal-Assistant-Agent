@@ -11,7 +11,11 @@ def sanitize_history(messages):
 
         # 2. Handle AI Messages (Reasoning + Tool Calls)
         elif isinstance(msg, AIMessage):
-            entry = {"role": "assistant", "content": msg.content or ""}
+            entry = {
+                "role": "assistant",
+                "content": msg.content or "",
+                "agent_name": getattr(msg, "additional_kwargs", {}),
+            }
 
             if msg.tool_calls:
                 entry["tool_calls"] = []
@@ -29,7 +33,6 @@ def sanitize_history(messages):
                     "role": "tool",
                     "tool_call_id": msg.tool_call_id,
                     "result": msg.content,
-                    "is_error": msg.content[0],
                 }
             )
 

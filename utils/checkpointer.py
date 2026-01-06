@@ -19,7 +19,9 @@ def strip_message_metadata(message):
         return ToolMessage(
             content=message.content,
             tool_call_id=message.tool_call_id,
-            name=message.name if hasattr(message, "name") else None,
+            additional_kwargs=message.additional_kwargs
+            if hasattr(message, "additional_kwargs")
+            else {},
         )
 
     else:

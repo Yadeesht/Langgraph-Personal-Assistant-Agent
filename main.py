@@ -103,14 +103,6 @@ async def main():
             logger.info(f"⏱️  Execution time: {execution_time:.2f} seconds")
             logger.info("=" * 80)
 
-            final_response = state["messages"][-1]
-            logger.info("📤 FINAL RESPONSE:")
-            logger.info("=" * 80)
-            if hasattr(final_response, "content") and final_response.content:
-                print(f"\n{final_response.content}\n")
-            else:
-                print(f"\n{final_response}\n")
-
             logger.info("=" * 80)
             logger.info("✅ Multi-Server Agent execution completed")
 
