@@ -1,5 +1,0 @@
-1. hey as i have send yadeesh a message that i will be meeting him tomorrow check if he have replied back if so send him that i will meet him morining 10 am 
-2. Use the get_unread_emails_tool to retrieve my recent emails. What are the recent mails I have received last 7 days?
-3. Use the send_emails_tool to send the email. can you send a mail to tyadeesh@gmail.com telling him i will meet him tommorow for the exam
-
-to kill the python process :" taskkill /F /IM python.exe /T " becoz the procfile is not killing the zombie process
