@@ -7,6 +7,9 @@ def strip_message_metadata(message):
         return AIMessage(
             content=message.content,
             tool_calls=message.tool_calls if hasattr(message, "tool_calls") else [],
+            additional_kwargs=message.additional_kwargs
+            if hasattr(message, "additional_kwargs")
+            else {},
         )
 
     elif isinstance(message, HumanMessage):

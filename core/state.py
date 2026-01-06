@@ -46,11 +46,38 @@ def internal_agent_route(state: State) -> str:
     if hasattr(last_message, "content") and isinstance(last_message.content, str):
         if "CLARIFICATION NEEDED:" in last_message.content.upper():
             logger.info("❓ Clarification needed - routing to human")
-            return "ASK"
+            return "END"
 
         if "TALK TO USER:" in last_message.content.upper():
             logger.info("💬 Agent wants to talk to user - routing to human")
-            return "ASK"
-
+            return "END"
     logger.info("📤 No tools/clarification - returning to supervisor")
+    return "supervisor"
+
+
+def route_start(state: State) -> str:
+    messages = state["messages"]
+
+    if len(messages) < 2:
+        return "supervisor"
+
+    last_ai_msg = messages[-2]
+
+    if hasattr(last_ai_msg, "content") and isinstance(last_ai_msg.content, str):
+        content_upper = last_ai_msg.content.upper()
+
+        if "CLARIFICATION NEEDED:" in content_upper or "TALK TO USER:" in content_upper:
+            if hasattr(
+                last_ai_msg, "additional_kwargs"
+            ) and last_ai_msg.additional_kwargs.get("name"):
+                agent_name = last_ai_msg.additional_kwargs["name"]
+                logger.info(f"Previous agent identified as: {agent_name}")
+
+                if agent_name in [
+                    "communication_agent",
+                    "planning_agent",
+                    "content_agent",
+                ]:
+                    return agent_name
+
     return "supervisor"

@@ -5,12 +5,9 @@ import httpx
 import pytz
 from langchain_core.messages import (
     AIMessage,
-    HumanMessage,
     SystemMessage,
     trim_messages,
 )
-from langgraph.graph import END
-from langgraph.types import interrupt
 
 from core.state import State
 from utils.context_cleaner import sanitize_history
@@ -84,7 +81,7 @@ def agent_node_factory(llm_with_tools, system_prompt, agent_name: str):
         except Exception as e:
             logger.error(f"Unexpected error: {e}")
             raise
-        logger.info(f"🕒 LLM response{msg}")
+
         current_time = get_current_time()
 
         raw_content = msg.content if msg.content else ""
@@ -129,60 +126,9 @@ def agent_node_factory(llm_with_tools, system_prompt, agent_name: str):
         agent_message = AIMessage(
             content=final_content,
             tool_calls=getattr(msg, "tool_calls", []),
-            name=agent_name,
+            additional_kwargs={"name": agent_name},
         )
-
+        logger.info(f"🚀 LLM sends this: {agent_message}")
         return {"messages": [agent_message]}
 
     return agent_node
-
-
-def human_node(state: State):
-    last_message = state["messages"][-1]
-    user_input = interrupt(last_message.content)
-    current_time = get_current_time()
-    stamped_content = f"[{current_time}] {user_input}"
-
-    logger.info(f"👤 User Input: {stamped_content}")
-
-    return {"messages": [HumanMessage(content=stamped_content)]}
-
-
-def route_after_human(state: State):
-    messages = state["messages"]
-    if len(messages) < 2:
-        logger.info("Not enough messages to determine next step, ending.")
-        print("Not enough messages to determine next step, ending.")
-        return END
-    last_ai_msg = messages[-2]
-
-    try:
-        content_dict = json.loads(last_ai_msg.content)
-        if "step" in content_dict:
-            next_step = content_dict["step"]
-            logger.info(f"✅ Next step from supervisor JSON: {next_step}")
-            print(f"✅ Next step from supervisor JSON: {next_step}")
-            if next_step.lower() in [
-                "communication_agent",
-                "planning_agent",
-                "content_agent",
-            ]:
-                return next_step.lower()
-
-            logger.info("if failed on step value")
-            print("if failed on step value")
-            return END
-    except (json.JSONDecodeError, TypeError):
-        pass
-
-    if hasattr(last_ai_msg, "name") and last_ai_msg.name:
-        agent_name = last_ai_msg.name.lower().replace(" ", "_")
-        logger.info(f"✅ Routing back to agent by name: {agent_name}")
-        print(f"✅ Routing back to agent by name: {agent_name}")
-
-        if agent_name in ["communication_agent", "planning_agent", "content_agent"]:
-            return agent_name
-
-    logger.warning("⚠️ Could not determine next step, ending conversation")
-    print("⚠️ Could not determine next step, ending conversation")
-    return END

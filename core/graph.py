@@ -10,9 +10,9 @@ from config.prompts import (
     SUPERVISOR_SYSTEM_PROMPT,
     CONTENT_SYSTEM_PROMPT,
 )
-from core.agent import agent_node_factory, human_node, route_after_human
+from core.agent import agent_node_factory
 from core.llm import build_llm_with_tools
-from core.state import State, route_after_supervisor, internal_agent_route
+from core.state import State, route_after_supervisor, internal_agent_route, route_start
 from utils.logger import request_counter, setup_logger
 from utils.token_counter import count_tokens
 
@@ -157,7 +157,6 @@ def build_graph(tool_sets, checkpointer):
     builder.add_node("communication_agent", communication_agent_node)
     builder.add_node("planning_agent", planning_agent_node)
     builder.add_node("content_agent", content_agent_node)
-    builder.add_node("human_node", human_node)
 
     builder.add_node(
         "communication_tools",
@@ -176,7 +175,16 @@ def build_graph(tool_sets, checkpointer):
         ToolNode(tools=supervisor_tools, handle_tool_errors=True),
     )
 
-    builder.add_edge(START, "supervisor")
+    builder.add_conditional_edges(
+        source=START,
+        path=route_start,
+        path_map={
+            "communication_agent": "communication_agent",
+            "planning_agent": "planning_agent",
+            "content_agent": "content_agent",
+            "supervisor": "supervisor",
+        },
+    )
 
     builder.add_conditional_edges(
         "supervisor",
@@ -199,7 +207,7 @@ def build_graph(tool_sets, checkpointer):
         {
             "tools": "communication_tools",
             "supervisor": "supervisor",
-            "ASK": "human_node",
+            "END": END,
         },
     )
 
@@ -211,7 +219,7 @@ def build_graph(tool_sets, checkpointer):
         {
             "tools": "planning_tools",
             "supervisor": "supervisor",
-            "ASK": "human_node",
+            "END": END,
         },
     )
     builder.add_edge("planning_tools", "planning_agent")
@@ -222,21 +230,10 @@ def build_graph(tool_sets, checkpointer):
         {
             "tools": "content_tools",
             "supervisor": "supervisor",
-            "ASK": "human_node",
+            "END": END,
         },
     )
     builder.add_edge("content_tools", "content_agent")
-
-    builder.add_conditional_edges(
-        "human_node",
-        route_after_human,
-        {
-            "communication_agent": "communication_agent",
-            "planning_agent": "planning_agent",
-            "content_agent": "content_agent",
-            END: END,
-        },
-    )
 
     graph = builder.compile(checkpointer=checkpointer)
     return graph
