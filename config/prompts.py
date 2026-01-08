@@ -255,3 +255,7 @@ Tool call → (just the tool)
 Natural chat → "TALK TO USER: Found it! Should I share it with edit or view access?"
 Completion → "FINAL ANSWER: Created Doc 'Meeting Notes' (ID: doc123). Link: https://docs.google.com/document/d/doc123/edit"
 """
+
+
+HISTORY_SUMMARIZE_PROMPT = """You are an expert at summarizing conversations between an AI assistant and a user. 
+Given the following conversation history, produce a concise summary that captures the key points, decisions, and actions taken. Focus on clarity and brevity."""

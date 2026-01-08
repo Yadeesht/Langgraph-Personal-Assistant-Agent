@@ -1,18 +1,57 @@
-from core.llm import build_llm_with_tools
+from core.llm import build_llm
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, SystemMessage
+from config.prompts import HISTORY_SUMMARIZE_PROMPT
 
 
 def summarize_context(messages):
     """Summarize the context from the message history"""
 
-    llm = build_llm_with_tools(tools=[])
-    messages = [
-        SystemMessage(content="Summarize the following conversation:")
-    ] + messages
+    llm = build_llm()
+
+    messages = [SystemMessage(content=HISTORY_SUMMARIZE_PROMPT)] + messages
+
     cleaned = llm.invoke(messages)
     cleaned_history = cleaned.content
 
     return cleaned_history
+
+
+def slim_messages(messages):
+    slim = []
+
+    for m in messages:
+        if isinstance(m, HumanMessage):
+            slim.append({"role": "user", "content": m.content})
+
+        elif isinstance(m, AIMessage):
+            additional_kwargs = m.additional_kwargs if m.additional_kwargs else {}
+            agent_name = additional_kwargs.get("name", "unknown_agent")
+            slim.append(
+                {
+                    "role": "assistant",
+                    "content": m.content,
+                    "agent_name": agent_name,
+                    "tool_calls": m.tool_calls or [],
+                }
+            )
+
+        elif isinstance(
+            m, SystemMessage
+        ):  # this is never stored in the context actually
+            slim.append({"role": "system", "content": m.content})
+
+        elif isinstance(m, ToolMessage):
+            slim.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": m.tool_call_id,
+                    "tool_name": m.name,
+                    "content": m.content,
+                    "status": m.status,
+                }
+            )
+
+    return slim
 
 
 def sanitize_history(messages):

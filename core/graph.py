@@ -15,6 +15,7 @@ from core.llm import build_llm_with_tools
 from core.state import State, route_after_supervisor, internal_agent_route, route_start
 from utils.helper import request_counter, setup_logger
 from utils.helper import count_tokens
+from utils.context_manager import slim_messages
 
 
 logger = setup_logger(__name__)
@@ -74,7 +75,9 @@ def build_graph(tool_sets, checkpointer):
 
         try:
             system_msg = SystemMessage(content=SUPERVISOR_SYSTEM_PROMPT)
-            response = supervisor_llm.invoke([system_msg] + state["messages"])
+            response = supervisor_llm.invoke(
+                [system_msg] + slim_messages(last_messages)
+            )
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 429:
                 logger.error("🚫 Rate limit hit in supervisor - stopping")

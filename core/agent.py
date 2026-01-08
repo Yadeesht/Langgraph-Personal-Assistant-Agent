@@ -9,6 +9,7 @@ from langchain_core.messages import (
     trim_messages,
 )
 
+from utils.context_manager import slim_messages
 from core.state import State
 from utils.context_manager import sanitize_history
 from utils.helper import request_counter, setup_logger
@@ -49,7 +50,7 @@ def agent_node_factory(llm_with_tools, system_prompt, agent_name: str):
             content_preview = json.dumps(content_preview[-10:], indent=2)
             logger.info(f"📝 Content preview: {content_preview}")
 
-        messages = [SystemMessage(content=system_prompt)] + last_messages
+        messages = [SystemMessage(content=system_prompt)] + slim_messages(last_messages)
 
         logger.info("=" * 80)
 
