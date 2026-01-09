@@ -15,6 +15,7 @@ from core.llm import build_llm_with_tools
 from core.state import State, route_after_supervisor, internal_agent_route, route_start
 from utils.helper import request_counter, setup_logger
 from utils.helper import count_tokens, get_current_time
+from agent import summerizer_node
 
 logger = setup_logger(__name__)
 
@@ -59,22 +60,29 @@ def build_graph(tool_sets, checkpointer):
 
         logger.info(f"📨 Messages in context: {len(state['messages'])}")
 
-        last_messages = trim_messages(
+        last_messages = trim_messages(  # fallback if summerizer fails
             state["messages"],
-            max_tokens=80000,
+            max_tokens=30000,
             strategy="last",
             token_counter=count_tokens,
             include_system=True,
             start_on="human",
         )
 
-        if last_messages:
-            preview = str(last_messages[-3:])
-            logger.info(f"📝 Latest Input: {preview}")
-        logger.info("=" * 80)
+        # if last_messages:
+        #     preview = str(last_messages[-3:])
+        #     logger.info(f"📝 Latest Input: {preview}")
+        # logger.info("=" * 80)
 
         try:
             system_msg = SystemMessage(content=SUPERVISOR_SYSTEM_PROMPT)
+
+            if state["summary"]:
+                summary_msg = SystemMessage(
+                    content=f"Conversation Summary of previous messages:\n{state['summary']}"
+                )
+                last_messages = [summary_msg] + last_messages
+
             response = supervisor_llm.invoke([system_msg] + last_messages)
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 429:
@@ -195,6 +203,7 @@ def build_graph(tool_sets, checkpointer):
     builder.add_node("communication_agent", communication_agent_node)
     builder.add_node("planning_agent", planning_agent_node)
     builder.add_node("content_agent", content_agent_node)
+    builder.add_node("summerizer_node", summerizer_node)
 
     builder.add_node(
         "communication_tools",
@@ -221,8 +230,11 @@ def build_graph(tool_sets, checkpointer):
             "planning_agent": "planning_agent",
             "content_agent": "content_agent",
             "supervisor": "supervisor",
+            "summerizer_node": "summerizer_node",
         },
     )
+
+    builder.add_edge("summerizer_node", "supervisor")
 
     builder.add_conditional_edges(
         "supervisor",

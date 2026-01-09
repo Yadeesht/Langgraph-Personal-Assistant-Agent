@@ -5,12 +5,15 @@ from langchain_core.messages import (
     AIMessage,
     SystemMessage,
     trim_messages,
+    RemoveMessage,
 )
 
 from core.state import State
 from utils.context_manager import sanitize_history
 from utils.helper import request_counter, setup_logger
 from utils.helper import count_tokens, get_current_time
+from utils.context_manager import summarize_history
+
 
 logger = setup_logger(__name__)
 
@@ -28,15 +31,14 @@ def agent_node_factory(llm_with_tools, system_prompt, agent_name: str):
 
         logger.info(f"📨 Messages in conversation: {len(state['messages'])}")
 
-        last_messages = trim_messages(
+        last_messages = trim_messages(  # fallback if summerizer fails
             state["messages"],
-            max_tokens=100090,
+            max_tokens=30000,
             strategy="last",
             token_counter=count_tokens,
             include_system=True,
             start_on="human",
         )
-        logger.info(f"📨 Trimmed messages: {last_messages[:4]}")
 
         logger.info("=" * 80)
         if last_messages:  # this is for logs purpose only
@@ -44,12 +46,19 @@ def agent_node_factory(llm_with_tools, system_prompt, agent_name: str):
             content_preview = json.dumps(content_preview[-10:], indent=2)
             logger.info(f"📝 Content preview: {content_preview}")
 
-        messages = [SystemMessage(content=system_prompt)] + last_messages
-
         logger.info("=" * 80)
 
         try:
+            if state["summary"]:
+                summary_msg = SystemMessage(
+                    content=f"Conversation Summary of previous messages:\n{state['summary']}"
+                )
+                last_messages = [summary_msg] + last_messages
+
+                messages = [SystemMessage(content=system_prompt)] + last_messages
+
             msg = llm_with_tools.invoke(messages)
+
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 429:
                 logger.error("🚫 Rate limit hit - stopping execution")
@@ -122,3 +131,15 @@ def agent_node_factory(llm_with_tools, system_prompt, agent_name: str):
         return {"messages": [agent_message]}
 
     return agent_node
+
+
+def summerizer_node(state: State):
+    logger.info("📝 Summarizer node activated to condense conversation history.")
+
+    messages = state["summary"] + state["messages"][:-25]
+
+    summarized_content = summarize_history(messages)
+
+    delete_actions = [RemoveMessage(id=m.id) for m in messages]
+
+    return {"summary": summarized_content, "messages": delete_actions}

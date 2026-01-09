@@ -2,14 +2,14 @@ from typing import Annotated, Literal, Optional
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
-from utils.helper import setup_logger
+from utils.helper import setup_logger, count_tokens
 
 logger = setup_logger(__name__)
 
 
 class State(TypedDict):
     messages: Annotated[list, add_messages]
-
+    summary: Optional[str]
     next: Optional[str]
 
 
@@ -79,5 +79,8 @@ def route_start(state: State) -> str:
                     "content_agent",
                 ]:
                     return agent_name
+
+    if len(messages) >= 25 and count_tokens(messages[:-25]) > 20000:
+        return "summerizer_node"
 
     return "supervisor"
