@@ -49,14 +49,18 @@ def agent_node_factory(llm_with_tools, system_prompt, agent_name: str):
         logger.info("=" * 80)
 
         try:
-            if state["summary"]:
+            summary = state.get("summary", None)
+            if summary:
+                logger.info("📝 Including conversation summary in the prompt.")
                 summary_msg = SystemMessage(
-                    content=f"Conversation Summary of previous messages:\n{state['summary']}"
+                    content=f"Conversation Summary of previous messages:\n{summary}"
                 )
                 last_messages = [summary_msg] + last_messages
 
-                messages = [SystemMessage(content=system_prompt)] + last_messages
-
+            messages = [SystemMessage(content=system_prompt)] + last_messages
+            logger.info(
+                f"🤖 Sending messages to LLM with {count_tokens(messages)} tokens"
+            )
             msg = llm_with_tools.invoke(messages)
 
         except httpx.HTTPStatusError as e:

@@ -10,12 +10,11 @@ from config.prompts import (
     SUPERVISOR_SYSTEM_PROMPT,
     CONTENT_SYSTEM_PROMPT,
 )
-from core.agent import agent_node_factory
+from core.agent import agent_node_factory, summerizer_node
 from core.llm import build_llm_with_tools
 from core.state import State, route_after_supervisor, internal_agent_route, route_start
 from utils.helper import request_counter, setup_logger
 from utils.helper import count_tokens, get_current_time
-from agent import summerizer_node
 
 logger = setup_logger(__name__)
 
@@ -75,15 +74,18 @@ def build_graph(tool_sets, checkpointer):
         # logger.info("=" * 80)
 
         try:
-            system_msg = SystemMessage(content=SUPERVISOR_SYSTEM_PROMPT)
-
-            if state["summary"]:
+            summary = state.get("summary", None)
+            if summary:
                 summary_msg = SystemMessage(
-                    content=f"Conversation Summary of previous messages:\n{state['summary']}"
+                    content=f"Conversation Summary of previous messages:\n{summary}"
                 )
                 last_messages = [summary_msg] + last_messages
 
-            response = supervisor_llm.invoke([system_msg] + last_messages)
+            message = [SystemMessage(content=SUPERVISOR_SYSTEM_PROMPT)] + last_messages
+            logger.info(
+                f"🤖 Sending messages to LLM with {count_tokens(message)} tokens"
+            )
+            response = supervisor_llm.invoke(message)
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 429:
                 logger.error("🚫 Rate limit hit in supervisor - stopping")
