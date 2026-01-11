@@ -12,9 +12,9 @@ from core.state import State
 from utils.context_manager import sanitize_history
 from utils.helper import request_counter, setup_logger
 from utils.helper import count_tokens, get_current_time
-from utils.context_manager import summarize_history
 from config.prompts import HISTORY_SUMMARIZE_PROMPT
 from core.llm import build_llm
+from core.codeagent import CodeExecutionAgent
 
 
 logger = setup_logger(__name__)
@@ -137,6 +137,59 @@ def agent_node_factory(llm_with_tools, system_prompt, agent_name: str):
         return {"messages": [agent_message]}
 
     return agent_node
+
+
+def code_execution_factory(llm, tool_sets, agent_name: str):
+    def code_executor(state: State):
+        current_time = get_current_time()
+
+        last_messages = trim_messages(
+            state["messages"],
+            max_tokens=30000,
+            strategy="last",
+            token_counter=count_tokens,
+            include_system=True,
+            start_on="human",
+        )
+
+        try:
+            agent = CodeExecutionAgent(llm, tool_sets)
+            required = list(tool_sets.keys())
+
+            # ✅ Run async method synchronously
+            import asyncio
+
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+
+            msg = loop.run_until_complete(
+                agent.execute_workflow(last_messages, required)
+            )
+
+        except Exception as e:
+            logger.error(f"Code execution error: {e}")
+            raw_content = f"Code execution failed: {str(e)}"
+            agent_message = AIMessage(
+                content=f"[{current_time}] [{agent_name}] {raw_content}"
+            )
+            return {"messages": [agent_message]}
+
+        # Format result
+        raw_content = (
+            f"Status: {msg.get('status', 'unknown')}\n"
+            f"Summary: {msg.get('summary', 'No summary')}\n"
+            f"Error: {msg.get('error', 'None')}"
+        )
+
+        final_content = f"[{current_time}] [{agent_name}] {raw_content}"
+        agent_message = AIMessage(content=final_content)
+
+        return {"messages": [agent_message]}
+
+    return code_executor
 
 
 def summerizer_node(state: State):

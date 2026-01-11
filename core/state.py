@@ -1,4 +1,4 @@
-from typing import Annotated, Literal, Optional
+from typing import Annotated, Literal, Optional, List, Dict, Any
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
@@ -13,6 +13,15 @@ class State(TypedDict):
     next: Optional[str]
 
 
+class TaskSpec(BaseModel):
+    """Structured task specification for code execution"""
+
+    primary_goal: str
+    required_tools_hint: List[str]
+    context_variables: Dict[str, Any]
+    last_error: Optional[str] = None
+
+
 class Route(BaseModel):
     """Routing decision for the supervisor"""
 
@@ -20,6 +29,7 @@ class Route(BaseModel):
         "communication_agent",
         "planning_agent",
         "content_agent",
+        "code_agent",
         "FINISH",
     ] = Field(
         description="The next agent to route to, or FINISH if done no other response other than these is allowed"

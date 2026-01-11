@@ -28,7 +28,7 @@ def sanitize_history(messages):
             entry = {
                 "role": "assistant",
                 "content": msg.content or "",
-                "agent_name": "u",
+                "agent_name": msg.additional_kwargs.get("agent_name", "default_agent"),
             }
 
             if msg.tool_calls:

@@ -10,11 +10,12 @@ from config.prompts import (
     SUPERVISOR_SYSTEM_PROMPT,
     CONTENT_SYSTEM_PROMPT,
 )
-from core.agent import agent_node_factory, summerizer_node
-from core.llm import build_llm_with_tools
+from core.agent import agent_node_factory, summerizer_node, code_execution_factory
+from core.llm import build_llm_with_tools, build_llm
 from core.state import State, route_after_supervisor, internal_agent_route, route_start
 from utils.helper import request_counter, setup_logger
 from utils.helper import count_tokens, get_current_time
+from config.settings import DEFAULT_OPEN_CODE_MODEL
 
 logger = setup_logger(__name__)
 
@@ -29,6 +30,7 @@ def build_graph(tool_sets, checkpointer):
     planning_llm = build_llm_with_tools(planning_tools)
     content_llm = build_llm_with_tools(tools=content_tools)
     supervisor_llm = build_llm_with_tools(supervisor_tools)
+    code_agent_llm = build_llm(MODEL=DEFAULT_OPEN_CODE_MODEL)
 
     communication_agent_node = agent_node_factory(
         communication_llm, COMMUNICATION_SYSTEM_PROMPT, agent_name="communication_agent"
@@ -40,6 +42,12 @@ def build_graph(tool_sets, checkpointer):
         llm_with_tools=content_llm,
         system_prompt=CONTENT_SYSTEM_PROMPT,
         agent_name="content_agent",
+    )
+
+    code_agent_node = code_execution_factory(
+        llm=code_agent_llm,
+        tool_sets=tool_sets,
+        agent_name="code_agent",
     )
 
     def supervisor_node(
@@ -206,6 +214,7 @@ def build_graph(tool_sets, checkpointer):
     builder.add_node("planning_agent", planning_agent_node)
     builder.add_node("content_agent", content_agent_node)
     builder.add_node("summerizer_node", summerizer_node)
+    builder.add_node("code_agent", code_agent_node)
 
     builder.add_node(
         "communication_tools",
@@ -245,6 +254,7 @@ def build_graph(tool_sets, checkpointer):
             "communication_agent": "communication_agent",
             "planning_agent": "planning_agent",
             "content_agent": "content_agent",
+            "code_agent": "code_agent",
             "supervisor_tools": "supervisor_tools",
             "supervisor": "supervisor",  # for tool fail fallback to same node and ask the LLM to re-decide
             "FINISH": END,
@@ -252,6 +262,8 @@ def build_graph(tool_sets, checkpointer):
     )
 
     builder.add_edge("supervisor_tools", "supervisor")
+
+    builder.add_edge("code_agent", "supervisor")
 
     builder.add_conditional_edges(
         "communication_agent",

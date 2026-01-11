@@ -19,7 +19,8 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 
 DEFAULT_OPEN_MODEL = "openai/gpt-oss-20b:free"
-DEFAULT_GROQ_MODEL = "openai/gpt-oss-20b"
+DEFAULT_OPEN_CODE_MODEL = "nvidia/nemotron-3-nano-30b-a3b:free"
+DEFAULT_GROQ_MODEL = "openai/gpt-oss-120b"
 MAX_RETRIES = 3
 REQUEST_TIMEOUT = 30
 
