@@ -155,7 +155,6 @@ def code_execution_factory(llm, tool_sets, agent_name: str):
 
         try:
             agent = CodeExecutionAgent(llm, tool_sets)
-            required = list(tool_sets.keys())
 
             try:
                 loop = asyncio.get_event_loop()
@@ -163,9 +162,7 @@ def code_execution_factory(llm, tool_sets, agent_name: str):
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
 
-            msg = loop.run_until_complete(
-                agent.execute_workflow(last_messages, required)
-            )
+            msg = loop.run_until_complete(agent.execute_workflow(last_messages))
 
         except Exception as e:
             logger.error(f"Code execution error: {e}")
@@ -192,7 +189,7 @@ def code_execution_factory(llm, tool_sets, agent_name: str):
 def summerizer_node(state: State):
     logger.info("📝 Summarizer node activated to condense conversation history.")
 
-    messages = state.get("summary") + state["messages"][:-25]
+    messages = state.get("summary") + state["messages"][:-15]
 
     llm = build_llm()
     messages = [SystemMessage(content=HISTORY_SUMMARIZE_PROMPT)] + messages
