@@ -1,6 +1,7 @@
 import json
 import httpx
 import asyncio
+from config.settings import DEFAULT_THREAD_ID
 
 from langchain_core.messages import (
     AIMessage,
@@ -10,6 +11,7 @@ from langchain_core.messages import (
 )
 
 from core.state import State
+from utils.checkpointer import archive_to_permanent_db
 from utils.context_manager import sanitize_history
 from utils.helper import request_counter, setup_logger
 from utils.helper import count_tokens, get_current_time
@@ -153,6 +155,14 @@ def code_execution_factory(llm, tool_sets, agent_name: str):
             start_on="human",
         )
 
+        summary = state.get("summary", None)
+        if summary:
+            logger.info("📝 Including conversation summary in the prompt.")
+            summary_msg = SystemMessage(
+                content=f"Conversation Summary of previous messages:\n{summary}"
+            )
+            last_messages = [summary_msg] + last_messages
+
         try:
             agent = CodeExecutionAgent(llm, tool_sets)
 
@@ -190,6 +200,12 @@ def summerizer_node(state: State):
     logger.info("📝 Summarizer node activated to condense conversation history.")
 
     messages = state.get("summary") + state["messages"][:-15]
+
+    try:
+        loop = asyncio.get_event_loop()
+        loop.create_task(archive_to_permanent_db(state["message"], DEFAULT_THREAD_ID))
+    except Exception as e:
+        logger.error(f"Archive failed: {e}")
 
     llm = build_llm()
     messages = [SystemMessage(content=HISTORY_SUMMARIZE_PROMPT)] + messages

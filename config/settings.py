@@ -5,8 +5,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+DATA_DIR = Path(__file__).parent.parent / "data"
+CHECKPOINT_DB = DATA_DIR / "checkpoints.db"
+MEMORY_DB = DATA_DIR / "memory.db"
+VECTOR_DB = DATA_DIR / "embeddings"
+
 BASE_DIR = Path(__file__).parent.parent
-DB_PATH = BASE_DIR / "data" / "memory.db"
 COMMUNICATION_SERVER = BASE_DIR / "MCP" / "core" / "communication_server.py"
 PLANNING_SERVER = BASE_DIR / "MCP" / "core" / "planning_server.py"
 CONTENT_SERVER = BASE_DIR / "MCP" / "core" / "content_server.py"

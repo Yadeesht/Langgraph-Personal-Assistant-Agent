@@ -240,8 +240,8 @@ def build_graph(tool_sets, checkpointer):
             "communication_agent": "communication_agent",
             "planning_agent": "planning_agent",
             "content_agent": "content_agent",
-            "supervisor": "supervisor",
             "summerizer_node": "summerizer_node",
+            "supervisor": "supervisor",
         },
     )
 

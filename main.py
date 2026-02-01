@@ -5,8 +5,8 @@ import aiosqlite
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
 from config.settings import (
+    CHECKPOINT_DB,
     communication_config,
-    DB_PATH,
     DEFAULT_THREAD_ID,
     planning_config,
     content_config,
@@ -14,7 +14,7 @@ from config.settings import (
 )
 
 from core.graph import build_graph
-from utils.checkpointer import CleaningAsyncSqliteSaver
+from utils.checkpointer import AsyncSqliteSaver
 from utils.helper import request_counter, setup_logger
 
 logger = setup_logger(__name__)
@@ -50,8 +50,8 @@ async def main():
             "supervisor": supervisor_tools,
         }
 
-        async with aiosqlite.connect(str(DB_PATH)) as connection:
-            checkpointer = CleaningAsyncSqliteSaver(connection)
+        async with aiosqlite.connect(str(CHECKPOINT_DB)) as connection:
+            checkpointer = AsyncSqliteSaver(connection)
             graph = build_graph(tool_sets, checkpointer)
 
             g = graph.get_graph()
