@@ -90,7 +90,7 @@ def route_start(state: State) -> str:
                 ]:
                     return agent_name
 
-    if len(messages) >= 25 and count_tokens(messages[:-15]) > 8000:
+    if count_tokens(messages[:-15]) > 8000:
         return "summerizer_node"
 
     return "supervisor"
