@@ -2,6 +2,7 @@ import json
 import httpx
 import asyncio
 from config.settings import DEFAULT_THREAD_ID
+from utils.audit_manager import log_event
 
 from langchain_core.messages import (
     AIMessage,
@@ -11,7 +12,6 @@ from langchain_core.messages import (
 )
 
 from core.state import State
-from utils.checkpointer import archive_to_permanent_db
 from utils.context_manager import sanitize_history
 from utils.helper import request_counter, setup_logger
 from utils.helper import count_tokens, get_current_time
@@ -24,7 +24,7 @@ logger = setup_logger(__name__)
 
 
 def agent_node_factory(llm_with_tools, system_prompt, agent_name: str):
-    def agent_node(state: State):
+    async def agent_node(state: State):
         request_counter["count"] += 1
         request_num = request_counter["count"]
 
@@ -66,7 +66,7 @@ def agent_node_factory(llm_with_tools, system_prompt, agent_name: str):
             logger.info(
                 f"🤖 Sending messages to LLM with {count_tokens(messages)} tokens"
             )
-            msg = llm_with_tools.invoke(messages)
+            msg = await llm_with_tools.ainvoke(messages)
 
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 429:
@@ -137,13 +137,29 @@ def agent_node_factory(llm_with_tools, system_prompt, agent_name: str):
             tool_calls=getattr(msg, "tool_calls", []),
         )
 
+        # Log agent response for audit trail
+        try:
+            await log_event(
+                thread_id=DEFAULT_THREAD_ID,
+                actor=agent_name,
+                message=final_content if final_content else "Tool calls made",
+                metadata={
+                    "tool_calls": len(msg.tool_calls)
+                    if hasattr(msg, "tool_calls")
+                    else 0,
+                    "request_num": request_num,
+                },
+            )
+        except Exception as e:
+            logger.error(f"Failed to log audit event: {e}")
+
         return {"messages": [agent_message]}
 
     return agent_node
 
 
 def code_execution_factory(llm, tool_sets, agent_name: str):
-    def code_executor(state: State):
+    async def code_executor(state: State):
         current_time = get_current_time()  # system prompt should have this need to do
 
         last_messages = trim_messages(
@@ -196,23 +212,32 @@ def code_execution_factory(llm, tool_sets, agent_name: str):
     return code_executor
 
 
-def summerizer_node(state: State):
+async def summerizer_node(state: State):
     logger.info("📝 Summarizer node activated to condense conversation history.")
 
     messages = state.get("summary") + state["messages"][:-15]
-
-    try:
-        loop = asyncio.get_event_loop()
-        loop.create_task(archive_to_permanent_db(state["message"], DEFAULT_THREAD_ID))
-    except Exception as e:
-        logger.error(f"Archive failed: {e}")
-
     llm = build_llm()
     messages = [SystemMessage(content=HISTORY_SUMMARIZE_PROMPT)] + messages
-    cleaned = llm.invoke(messages)
+    cleaned = await llm.ainvoke(messages)
 
     summarized_content = cleaned.content
 
     delete_actions = [RemoveMessage(id=m.id) for m in messages]
+
+    # Log summarization event for audit trail
+    try:
+        await log_event(
+            thread_id=DEFAULT_THREAD_ID,
+            actor="summerizer_node",
+            message=f"Archived {len(delete_actions)} messages. New summary created.",
+            metadata={
+                "messages_archived": len(delete_actions),
+                "summary_preview": summarized_content[:200] + "..."
+                if len(summarized_content) > 200
+                else summarized_content,
+            },
+        )
+    except Exception as e:
+        logger.error(f"Failed to log summarizer audit event: {e}")
 
     return {"summary": summarized_content, "messages": delete_actions}

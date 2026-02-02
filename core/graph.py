@@ -4,6 +4,7 @@ from langgraph.prebuilt import ToolNode
 import re
 import json
 import httpx
+import asyncio
 from config.prompts import (
     COMMUNICATION_SYSTEM_PROMPT,
     PLANNING_SYSTEM_PROMPT,
@@ -50,7 +51,7 @@ def build_graph(tool_sets, checkpointer):
         agent_name="code_agent",
     )
 
-    def supervisor_node(
+    async def supervisor_node(
         state: State,
         llm_with_tools=supervisor_llm,
         system_prompt=SUPERVISOR_SYSTEM_PROMPT,
@@ -93,7 +94,7 @@ def build_graph(tool_sets, checkpointer):
             logger.info(
                 f"🤖 Sending messages to LLM with {count_tokens(message)} tokens"
             )
-            response = supervisor_llm.invoke(message)
+            response = await supervisor_llm.ainvoke(message)
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 429:
                 logger.error("🚫 Rate limit hit in supervisor - stopping")
@@ -140,6 +141,7 @@ def build_graph(tool_sets, checkpointer):
             logger.info(
                 f"🔎 Supervisor is researching: {len(response.tool_calls)} tool calls"
             )
+            tool_names = []
             for i, tool_call in enumerate(response.tool_calls, 1):
                 logger.info(f"   Tool #{i}:")
                 logger.info(f"      Name: {tool_call.get('name', 'N/A')}")
@@ -147,11 +149,30 @@ def build_graph(tool_sets, checkpointer):
                     f"      Args: {json.dumps(tool_call.get('args', {}), indent=10)}"
                 )
                 logger.info(f"      ID: {tool_call.get('id', 'N/A')}")
+                tool_names.append(tool_call.get("name", "N/A"))
 
             agent_message = AIMessage(
                 content=f"[{current_time}] [supervisor] {response.content}",
                 tool_calls=getattr(response, "tool_calls", []),
             )
+
+            # Log supervisor tool usage for audit trail
+            try:
+                from utils.audit_manager import log_event
+                from config.settings import DEFAULT_THREAD_ID
+
+                await log_event(
+                    thread_id=DEFAULT_THREAD_ID,
+                    actor="supervisor",
+                    message=f"Using tools: {', '.join(tool_names)}",
+                    metadata={
+                        "routing": "supervisor_tools",
+                        "tool_count": len(response.tool_calls),
+                        "request_num": request_num,
+                    },
+                )
+            except Exception as e:
+                logger.error(f"Failed to log supervisor tool audit: {e}")
 
             return {
                 "next": "supervisor_tools",  # New internal route
@@ -172,6 +193,24 @@ def build_graph(tool_sets, checkpointer):
                 )
 
                 logger.info(f"➡ Supervisor Routing to: {step}")
+
+                # Log supervisor routing decision for audit trail
+                try:
+                    from utils.audit_manager import log_event
+                    from config.settings import DEFAULT_THREAD_ID
+
+                    await log_event(
+                        thread_id=DEFAULT_THREAD_ID,
+                        actor="supervisor",
+                        message=f"Routing to: {step}",
+                        metadata={
+                            "routing_decision": step,
+                            "request_num": request_num,
+                        },
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to log supervisor routing audit: {e}")
+
                 return {"next": step, "messages": [agent_message]}
             except Exception as e:
                 response = f"Error in json parsing tried to route to other agent: {e}"
@@ -202,6 +241,25 @@ def build_graph(tool_sets, checkpointer):
             agent_message = AIMessage(
                 content=f"[{current_time}] [supervisor] {response.content}",
             )
+
+            # Log supervisor direct response for audit trail
+            try:
+                from utils.audit_manager import log_event
+                from config.settings import DEFAULT_THREAD_ID
+
+                await log_event(
+                    thread_id=DEFAULT_THREAD_ID,
+                    actor="supervisor",
+                    message=response.content,
+                    metadata={
+                        "routing": "FINISH",
+                        "direct_response": True,
+                        "request_num": request_num,
+                    },
+                )
+            except Exception as e:
+                logger.error(f"Failed to log supervisor response audit: {e}")
+
             return {
                 "next": "FINISH",  # Or loop back to Human
                 "messages": [agent_message],

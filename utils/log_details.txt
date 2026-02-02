@@ -1,0 +1,17 @@
+====================================================================================================
+📊 AGENTIC AI - HUMAN READABLE AUDIT LOG
+Generated at: 2026-02-02 15:36:10
+====================================================================================================
+
+[2026-02-02T15:35:25.633495] | THREAD: 2... | ACTOR: SUPERVISOR
+MESSAGE: Hello! How can I assist you today?
+METADATA: {'routing': 'FINISH', 'direct_response': True, 'request_num': 1}
+----------------------------------------------------------------------------------------------------
+[2026-02-02T15:34:50.900434] | THREAD: 1... | ACTOR: SUPERVISOR
+MESSAGE: Hello again! What can I take care of for you today?
+METADATA: {'routing': 'FINISH', 'direct_response': True, 'request_num': 1}
+----------------------------------------------------------------------------------------------------
+
+SUMMARY:
+Total Events Logged: 2
+Active Threads: 2

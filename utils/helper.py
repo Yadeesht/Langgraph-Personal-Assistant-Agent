@@ -1,6 +1,6 @@
 import logging
 import sqlite3
-from config.settings import DB_PATH
+from config.settings import CHECKPOINT_DB
 import tiktoken
 from datetime import datetime
 import pytz
@@ -38,7 +38,7 @@ request_counter = {"count": 0}
 def delete_thread_from_db(thread_id: str):
     """Clear memory for a specific thread"""
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(CHECKPOINT_DB)
     cursor = conn.cursor()
     cursor.execute("DELETE FROM messages WHERE thread_id = ?", (thread_id,))
     deleted = cursor.rowcount

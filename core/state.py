@@ -3,6 +3,7 @@ from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
 from utils.helper import setup_logger, count_tokens
+from datetime import datetime
 
 logger = setup_logger(__name__)
 
@@ -10,6 +11,7 @@ logger = setup_logger(__name__)
 class State(TypedDict):
     messages: Annotated[list, add_messages]
     summary: Optional[str]
+    last_summary_timestamp: Optional[float] = datetime.now().timestamp()
     next: Optional[str]
 
 
@@ -89,6 +91,14 @@ def route_start(state: State) -> str:
                     "content_agent",
                 ]:
                     return agent_name
+
+    if (
+        state.get("last_summary_timestamp") is not None
+        and (datetime.now().timestamp() - state.get("last_summary_timestamp")) > 21600
+    ) and count_tokens(messages[:]) > 4000:
+        state["summary"] = ""
+        state["last_summary_timestamp"] = datetime.now().timestamp()
+        logger.info("🗑️ Cleared old summary due to time/token limits")
 
     if count_tokens(messages[:-15]) > 8000:
         return "summerizer_node"
