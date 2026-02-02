@@ -10,7 +10,7 @@ root_dir = Path(__file__).parent.parent
 sys.path.insert(0, str(root_dir))
 
 from config.settings import MEMORY_DB
-from utils.helper import setup_logger
+from utils.helper import count_tokens, setup_logger
 
 logger = setup_logger(__name__)
 
@@ -55,7 +55,7 @@ def analyze_human_logs(
         query = """
             SELECT thread_id, timestamp, actor, message, metadata 
             FROM human_logs 
-            ORDER BY timestamp DESC;
+            ORDER BY timestamp ASC;
         """
         cursor.execute(query)
         rows = cursor.fetchall()
@@ -66,7 +66,7 @@ def analyze_human_logs(
                 f.write(message + "\n")
             conn.close()
             return
-
+        messages = []
         # 3. Open file for writing the clear-text report
         with open(output_file, "w", encoding="utf-8") as f:
             f.write("=" * 100 + "\n")
@@ -79,6 +79,7 @@ def analyze_human_logs(
                     f"[{timestamp}] | THREAD: {thread_id[:8]}... | ACTOR: {actor.upper()}\n"
                 )
                 f.write(f"MESSAGE: {message}\n")
+                messages.append(message)
 
                 # Metadata is stored as a stringified dict in your log_event code
                 if metadata and metadata != "{}":
@@ -91,6 +92,7 @@ def analyze_human_logs(
             summary = "\nSUMMARY:\n"
             summary += f"Total Events Logged: {len(rows)}\n"
             summary += f"Active Threads: {unique_threads}\n"
+            summary += f"Total token count in messages: {sum(count_tokens(msg) for msg in messages)} tokens\n"
             f.write(summary)
 
         print(f"✅ Audit report successfully written to {output_file}")

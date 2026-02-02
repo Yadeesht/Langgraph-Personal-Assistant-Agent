@@ -7,18 +7,39 @@ import pytz
 
 
 def count_tokens(messages):
+    """
+    Count tokens for messages. Handles both:
+    - List of message objects with .content attribute
+    - List of plain strings
+    - Single string
+    """
     try:
         encoding = tiktoken.encoding_for_model("gpt-4")
     except KeyError:
         encoding = tiktoken.get_encoding("cl100k_base")
 
+    # Handle single string input
+    if isinstance(messages, str):
+        return len(encoding.encode(messages))
+
+    # Handle list of messages
     num_tokens = 0
     for message in messages:
-        # Every message follows <im_start>{role/name}\n{content}<im_end>\n
-        num_tokens += 4
-        if hasattr(message, "content"):
+        if isinstance(message, str):
+            # Plain string - just encode it
+            num_tokens += len(encoding.encode(message))
+        elif hasattr(message, "content"):
+            # Message object with content attribute
+            num_tokens += 4  # Message formatting overhead
             num_tokens += len(encoding.encode(str(message.content)))
-    num_tokens += 2  # Every reply is primed with <im_start>assistant
+        else:
+            # Unknown type, try to convert to string
+            num_tokens += len(encoding.encode(str(message)))
+
+    # Add reply priming tokens only for message objects (not plain strings)
+    if messages and not isinstance(messages[0], str):
+        num_tokens += 2
+
     return num_tokens
 
 

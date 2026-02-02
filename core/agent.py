@@ -229,12 +229,9 @@ async def summerizer_node(state: State):
         await log_event(
             thread_id=DEFAULT_THREAD_ID,
             actor="summerizer_node",
-            message=f"Archived {len(delete_actions)} messages. New summary created.",
+            message=f"summerized content of previous text: {summarized_content}",
             metadata={
-                "messages_archived": len(delete_actions),
-                "summary_preview": summarized_content[:200] + "..."
-                if len(summarized_content) > 200
-                else summarized_content,
+                f"Archived {len(delete_actions)} messages.",
             },
         )
     except Exception as e:

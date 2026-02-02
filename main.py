@@ -14,6 +14,7 @@ from config.settings import (
 )
 
 from core.graph import build_graph
+from utils.audit_manager import log_event
 from utils.checkpointer import AsyncSqliteSaver
 from utils.helper import request_counter, setup_logger
 
@@ -74,6 +75,17 @@ async def main():
                     continue
 
                 logger.info(f"👤 User Query: {user_query}")
+
+                try:
+                    await log_event(
+                        thread_id=DEFAULT_THREAD_ID,
+                        actor="Human_node",
+                        message=user_query,
+                        metadata={},
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to log human_node audit event: {e}")
+
                 state = await graph.ainvoke(
                     {
                         "messages": [
