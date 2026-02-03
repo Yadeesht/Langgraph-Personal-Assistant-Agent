@@ -1,4 +1,4 @@
-server1: python MCP/core/communication_server.py
-server2: python MCP/core/planning_server.py
-server3: python MCP/core/content_server.py
-server4: python MCP/core/supervisor_server.py
+server1: python mcp/core/communication_server.py
+server2: python mcp/core/planning_server.py
+server3: python mcp/core/content_server.py
+server4: python mcp/core/supervisor_server.py

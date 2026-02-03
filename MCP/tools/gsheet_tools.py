@@ -11,11 +11,11 @@ import re
 from typing import List, Optional, Union
 from pathlib import Path
 import copy
-from MCP.core.server_init import content_server
-from MCP.tools.workspace_comment_base import create_comment_tools
-from MCP.helper.utils import UserInputError
-from MCP.auth.service_decoder import get_google_service
-from MCP.helper.pydantic_models import (
+from mcp.core.server_init import content_server
+from mcp.tools.workspace_comment_base import create_comment_tools
+from mcp.helper.utils import UserInputError
+from mcp.auth.service_decoder import get_google_service
+from mcp.helper.pydantic_models import (
     ListSpreadsheetsRequest,
     ListSpreadsheetsResponse,
     SpreadsheetInfo,

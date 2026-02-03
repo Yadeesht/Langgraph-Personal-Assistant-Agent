@@ -11,10 +11,10 @@ MEMORY_DB = DATA_DIR / "memory.db"
 VECTOR_DB = DATA_DIR / "embeddings"
 
 BASE_DIR = Path(__file__).parent.parent
-COMMUNICATION_SERVER = BASE_DIR / "MCP" / "core" / "communication_server.py"
-PLANNING_SERVER = BASE_DIR / "MCP" / "core" / "planning_server.py"
-CONTENT_SERVER = BASE_DIR / "MCP" / "core" / "content_server.py"
-SUPERVISOR_SERVER = BASE_DIR / "MCP" / "core" / "supervisor_server.py"
+COMMUNICATION_SERVER = BASE_DIR / "mcp" / "core" / "communication_server.py"
+PLANNING_SERVER = BASE_DIR / "mcp" / "core" / "planning_server.py"
+CONTENT_SERVER = BASE_DIR / "mcp" / "core" / "content_server.py"
+SUPERVISOR_SERVER = BASE_DIR / "mcp" / "core" / "supervisor_server.py"
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")

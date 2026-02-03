@@ -4,8 +4,7 @@
 **/.env
 **/data/
 **/result.txt
-**/test-client.py
-**/test.py
+**/test/
 **/todo.txt
 **/dummy.txt
 **/log_details.txt

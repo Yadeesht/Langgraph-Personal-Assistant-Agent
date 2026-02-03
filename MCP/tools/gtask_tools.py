@@ -11,9 +11,9 @@ from pathlib import Path
 
 from googleapiclient.errors import HttpError
 
-from MCP.auth.service_decoder import get_google_service
-from MCP.core.server_init import planning_server
-from MCP.helper.pydantic_models import (
+from mcp.auth.service_decoder import get_google_service
+from mcp.core.server_init import planning_server
+from mcp.helper.pydantic_models import (
     TaskListInfo,
     ListTaskListsRequest,
     ListTaskListsResponse,

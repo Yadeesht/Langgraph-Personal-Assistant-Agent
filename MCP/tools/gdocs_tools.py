@@ -12,13 +12,13 @@ from pathlib import Path
 from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 
 # Auth & server utilities
-from MCP.auth.service_decoder import get_google_service
-from MCP.helper.utils import extract_office_xml_text
-from MCP.core.server_init import content_server
-from MCP.tools.workspace_comment_base import create_comment_tools
+from mcp.auth.service_decoder import get_google_service
+from mcp.helper.utils import extract_office_xml_text
+from mcp.core.server_init import content_server
+from mcp.tools.workspace_comment_base import create_comment_tools
 
 # Import Pydantic models
-from MCP.helper.pydantic_models import (
+from mcp.helper.pydantic_models import (
     SearchDocsRequest,
     SearchDocsResponse,
     DocInfo,
@@ -51,7 +51,7 @@ from MCP.helper.pydantic_models import (
 )
 
 # Import helper functions for document operations
-from MCP.helper.docs_helper import (
+from mcp.helper.docs_helper import (
     create_insert_text_request,
     create_delete_range_request,
     create_format_text_request,
@@ -67,7 +67,7 @@ from MCP.helper.docs_helper import (
 )
 
 # Import operation managers for complex business logic
-from MCP.helper.docs_managers import (
+from mcp.helper.docs_managers import (
     TableOperationManager,
     HeaderFooterManager,
     ValidationManager,

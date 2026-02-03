@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 
-from MCP.helper.docs_helper import (
+from mcp.helper.docs_helper import (
     create_insert_text_request,
     create_delete_range_request,
     create_format_text_request,

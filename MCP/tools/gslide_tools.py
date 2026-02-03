@@ -8,10 +8,10 @@ import asyncio
 from typing import List, Dict, Any
 from pathlib import Path
 
-from MCP.auth.service_decoder import get_google_service
-from MCP.core.server_init import content_server
-from MCP.tools.workspace_comment_base import create_comment_tools
-from MCP.helper.pydantic_models import (
+from mcp.auth.service_decoder import get_google_service
+from mcp.core.server_init import content_server
+from mcp.tools.workspace_comment_base import create_comment_tools
+from mcp.helper.pydantic_models import (
     CreatePresentationRequest,
     CreatePresentationResponse,
     GetPresentationRequest,

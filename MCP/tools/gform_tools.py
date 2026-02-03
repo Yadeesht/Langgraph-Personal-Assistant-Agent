@@ -8,9 +8,9 @@ import asyncio
 from typing import Optional, Dict, Any
 from pathlib import Path
 
-from MCP.auth.service_decoder import get_google_service
-from MCP.core.server_init import content_server
-from MCP.helper.pydantic_models import (
+from mcp.auth.service_decoder import get_google_service
+from mcp.core.server_init import content_server
+from mcp.helper.pydantic_models import (
     CreateFormRequest,
     CreateFormResponse,
     GetFormRequest,
