@@ -2,8 +2,11 @@ import kuzu
 from pathlib import Path
 import json
 from sentence_transformers import SentenceTransformer
+from yfiles_jupyter_graphs_for_kuzu import KuzuGraphWidget
 import sys
 import pandas
+import networkx as nx
+import matplotlib.pyplot as plt
 
 root = Path(__file__).parent.parent
 sys.path.append(str(root))
@@ -324,3 +327,59 @@ class KnowledgeGraph:
         Answer:
         """
         return prompt
+
+    def visualize(self, output_path: str = "docs/knowledge_graph.png"):
+        try:
+            nodes_res = self.conn.execute("MATCH (n:Entity) RETURN n.id, n.type")
+            rels_res = self.conn.execute(
+                "MATCH (a)-[r]->(b) RETURN a.id, b.id, r.rel_type"
+            )
+
+            G = nx.DiGraph()
+            node_colors = []
+
+            color_map = {
+                "Project": "#2ecc71",
+                "Organization": "#3498db",
+                "Tool": "#f1c40f",
+                "Person": "#e67e22",
+            }
+
+            while nodes_res.has_next():
+                node_id, n_type = nodes_res.get_next()
+                G.add_node(node_id, type=n_type)
+                node_colors.append(color_map.get(n_type, "#95a5a6"))
+
+            while rels_res.has_next():
+                u, v, rel_type = rels_res.get_next()
+                G.add_edge(u, v, label=rel_type)
+
+            plt.figure(figsize=(16, 10))
+
+            pos = nx.spring_layout(G, k=1.5, iterations=50, seed=42)
+
+            nx.draw_networkx_nodes(
+                G, pos, node_size=3000, node_color=node_colors, alpha=0.9
+            )
+            nx.draw_networkx_labels(G, pos, font_size=10, font_weight="bold")
+
+            nx.draw_networkx_edges(
+                G,
+                pos,
+                edgelist=G.edges(),
+                edge_color="#bdc3c7",
+                arrowsize=20,
+                connectionstyle="arc3, rad=0.1",
+            )
+
+            edge_labels = nx.get_edge_attributes(G, "label")
+            nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_size=8)
+
+            plt.title("Knowledge Graph", fontsize=15)
+            plt.axis("off")
+            plt.tight_layout()
+            plt.savefig(output_path, dpi=300)
+            print(f"✅ Visualization saved with improved spacing: {output_path}")
+
+        except Exception as e:
+            print(f"Error during visualization: {e}")

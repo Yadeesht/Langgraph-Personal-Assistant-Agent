@@ -59,7 +59,7 @@ async def main():
 
             png_bytes = g.draw_mermaid_png()
 
-            with open("docs/agent_structure_graph.png", "wb") as f:
+            with open("docs/images/agent_structure_graph.png", "wb") as f:
                 f.write(png_bytes)
 
             config = {"configurable": {"thread_id": DEFAULT_THREAD_ID}}
