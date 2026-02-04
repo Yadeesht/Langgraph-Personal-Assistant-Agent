@@ -2,9 +2,7 @@ import kuzu
 from pathlib import Path
 import json
 from sentence_transformers import SentenceTransformer
-import torch.nn.functional as F
 import sys
-import torch
 import pandas
 
 root = Path(__file__).parent.parent
@@ -106,7 +104,6 @@ class KnowledgeGraph:
             text = f"{node_id} {node_type} {search_keywords}"
 
             embedding = self._compute_embedding(text)
-            embedding_str = str(embedding)
 
             query = f"""
             MERGE (n:Entity {{id: '{node_id}'}})
@@ -241,11 +238,8 @@ class KnowledgeGraph:
         """
         query_embedding = self._compute_embedding(keywords)
 
-        # We execute a UNION query:
-        # Part 1: The direct semantic matches (0 hops)
-        # Part 2: The neighbors of those matches (1 hop)
-
         query = """
+            /* 1. Direct Matches (Hop 0) */
             MATCH (n:Entity)
             WHERE n.embedding IS NOT NULL
             WITH n, array_cosine_similarity(n.embedding, CAST($query_embedding, 'FLOAT[384]')) AS score
@@ -261,6 +255,7 @@ class KnowledgeGraph:
             
             UNION
             
+            /* 2. Direct Neighbors (Hop 1) */
             MATCH (n:Entity)
             WHERE n.embedding IS NOT NULL
             WITH n, array_cosine_similarity(n.embedding, CAST($query_embedding, 'FLOAT[384]')) AS score
@@ -274,7 +269,7 @@ class KnowledgeGraph:
                 score AS base_score,
                 1 AS hops,
                 CAST(score * $expansion_factor, 'FLOAT') AS relevance_score
-        """
+            """
 
         result = self.conn.execute(
             query,
@@ -285,7 +280,13 @@ class KnowledgeGraph:
             },
         )
 
-        return result.get_as_df()
+        df = result.get_as_df()
+
+        if not df.empty:
+            df = df.sort_values(by="relevance_score", ascending=False)
+            df = df.drop_duplicates(subset=["id"], keep="first")
+
+        return df
 
     def preprocess_graph(self):
         try:
