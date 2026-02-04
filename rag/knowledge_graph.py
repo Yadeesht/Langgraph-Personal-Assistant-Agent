@@ -2,8 +2,10 @@ import kuzu
 from pathlib import Path
 import json
 from sentence_transformers import SentenceTransformer
-import asyncio
+import torch.nn.functional as F
 import sys
+import torch
+import pandas
 
 root = Path(__file__).parent.parent
 sys.path.append(str(root))
@@ -21,42 +23,37 @@ class KnowledgeGraph:
         self.db = kuzu.Database(str(self.path))
         self.conn = kuzu.Connection(self.db)
         self.model = SentenceTransformer("BAAI/bge-small-en-v1.5")
-        asyncio.run(self._create_generic_schema())
+        self._create_generic_schema()
 
-    async def _create_generic_schema(self):
+    def _create_generic_schema(self):
         try:
-            # Check if the Entity table exists
             try:
                 self.conn.execute("MATCH (n:Entity) RETURN n LIMIT 1")
                 logger.info("Entity table already exists.")
             except Exception:
-                # If the table does not exist, create it
                 self.conn.execute("""
                     CREATE NODE TABLE Entity(
                         id STRING, 
                         type STRING, 
-                        description STRING, 
+                        search_keywords STRING, 
+                        full_description STRING, 
                         embedding FLOAT[384], 
                         PRIMARY KEY(id)
                     )
                 """)
                 logger.info("Entity table created successfully.")
-
-            # Ensure the embedding index exists
             try:
                 self.conn.execute(
-                    "CALL db.create_vector_index('Entity', 'embedding', 'cosine')"
+                    "CALL create_hnsw_index('Entity', 'embedding', 'cosine')"
                 )
-                logger.info("Vector index on 'embedding' created successfully.")
+                logger.info("HNSW vector index created successfully.")
             except Exception as e:
-                logger.info(f"Error creating vector index: {e}")
+                pass
 
-            # Check if the RELATED_TO table exists
             try:
                 self.conn.execute("MATCH ()-[r:RELATED_TO]->() RETURN r LIMIT 1")
                 logger.info("RELATED_TO table already exists.")
             except Exception:
-                # If the table does not exist, create it
                 self.conn.execute("""
                     CREATE REL TABLE RELATED_TO(
                         FROM Entity TO Entity, 
@@ -77,15 +74,17 @@ class KnowledgeGraph:
 
     def clear_database(self):
         try:
-            self.conn.execute("MATCH (n) DETACH DELETE n")
+            self.execute_query("MATCH (n) DETACH DELETE n")
             logger.info("Database cleared successfully.")
         except Exception as e:
             logger.info(f"Error clearing database: {e}")
 
-    async def _compute_embedding(self, text: str):
+    def _compute_embedding(self, text: str):
         try:
             embedding = self.model.encode(text)
-            return embedding.tolist()
+            if hasattr(embedding, "tolist"):
+                return embedding.tolist()
+            return list(embedding)
         except Exception as e:
             logger.info(f"Error computing embedding: {e}")
             return None
@@ -93,7 +92,9 @@ class KnowledgeGraph:
     def close(self):
         self.conn.close()
 
-    async def add_node(self, node_id: str, node_type: str, description: str):
+    def add_node(
+        self, node_id: str, node_type: str, search_keywords: str, full_description: str
+    ):
         try:
             existing_node_query = f"MATCH (n:Entity) WHERE n.id = '{node_id}' RETURN n"
             result = self.execute_query(existing_node_query)
@@ -102,22 +103,26 @@ class KnowledgeGraph:
                     f"Node with id '{node_id}' already exists. Skipping insertion."
                 )
                 return
+            text = f"{node_id} {node_type} {search_keywords}"
 
-            embedding = self.model.encode(description).tolist()
+            embedding = self._compute_embedding(text)
+            embedding_str = str(embedding)
+
             query = f"""
-            CREATE (:Entity {{
-                id: '{node_id}', 
-                type: '{node_type}', 
-                description: '{description}', 
-                embedding: {embedding}
-            }})
+            MERGE (n:Entity {{id: '{node_id}'}})
+            SET n.type = '{node_type}', 
+                n.search_keywords = '{search_keywords}',
+                n.full_description = '{full_description}', 
+                n.embedding = {embedding}
             """
+
             self.execute_query(query)
-            logger.info(f"Node '{node_id}' added successfully.")
+            logger.info(f"Node '{node_id}' upserted with keyword-dense embedding.")
+
         except Exception as e:
             logger.info(f"Error adding node: {e}")
 
-    async def add_relationship(
+    def add_relationship(
         self, source: str, target: str, rel_type: str, confidence: float = 1.0
     ):
         try:
@@ -131,104 +136,168 @@ class KnowledgeGraph:
             logger.info(f"Error adding relationship: {e}")
             return
 
-    async def find_similar_nodes(self, description: str, top_k: int = 5):
+    def modify_node_attributes(self, node_id: str, attributes: dict):
         try:
-            query_embedding = await self._compute_embedding(description)
+            set_clauses = ", ".join(
+                [f"n.{key} = '{value}'" for key, value in attributes.items()]
+            )
+            query = f"""
+            MATCH (n:Entity) 
+            WHERE n.id = '{node_id}' 
+            SET {set_clauses}
+            """
+            self.execute_query(query)
+            logger.info(f"Node '{node_id}' attributes updated successfully.")
+        except Exception as e:
+            logger.info(f"Error modifying node attributes: {e}")
+            return
 
-            query = f"CALL query_vector_index('Entity', 'embedding', {query_embedding}, {top_k}) YIELD node, score RETURN node.id, node.type, score"
+    def modify_relationship(
+        self, source: str, target: str, rel_type: str, confidence: float = 1.0
+    ):
+        try:
+            query = f"""
+            MATCH (a:Entity)-[r:RELATED_TO]->(b:Entity)
+            WHERE a.id = '{source}' AND b.id = '{target}'
+            SET r.rel_type = '{rel_type}', r.confidence = {confidence}
+            """
+            self.execute_query(query)
+            logger.info(
+                f"Relationship from '{source}' to '{target}' updated successfully."
+            )
+        except Exception as e:
+            logger.info(f"Error modifying relationship: {e}")
+            return
 
-            result = self.conn.execute(query)
-            matched = []
+    def delete_node(self, node_id: str):
+        try:
+            query = f"""
+            MATCH (n:Entity) 
+            WHERE n.id = '{node_id}' 
+            DETACH DELETE n
+            """
+            self.execute_query(query)
+            logger.info(f"Node '{node_id}' deleted successfully.")
+        except Exception as e:
+            logger.info(f"Error deleting node: {e}")
+            return
+
+    def delete_relationship(self, source: str, target: str):
+        try:
+            query = f"""
+            MATCH (a:Entity)-[r:RELATED_TO]->(b:Entity)
+            WHERE a.id = '{source}' AND b.id = '{target}'
+            DELETE r
+            """
+            self.execute_query(query)
+            logger.info(
+                f"Relationship from '{source}' to '{target}' deleted successfully."
+            )
+        except Exception as e:
+            logger.info(f"Error deleting relationship: {e}")
+            return
+
+    def find_similar_nodes(self, keywords: str, top_k: int = 5):
+        try:
+            query_embedding = self._compute_embedding(keywords)
+            query = f"""
+            MATCH (n:Entity) 
+            WHERE n.embedding IS NOT NULL
+            RETURN n.id, n.type, n.full_description, 
+                   array_cosine_similarity(n.embedding, CAST({query_embedding}, 'FLOAT[384]')) AS score
+            ORDER BY score DESC
+            LIMIT {top_k}
+            """
+
+            result = self.execute_query(query)
+
+            if not result:
+                return []
+
+            nodes_with_scores = []
             while result.has_next():
                 row = result.get_next()
-                matched.append({"id": row[0], "type": row[1], "score": row[2]})
-            return matched
+                nodes_with_scores.append(
+                    {
+                        "id": row[0],
+                        "type": row[1],
+                        "full_description": row[2],
+                        "score": row[3],
+                    }
+                )
+
+            return nodes_with_scores
+
         except Exception as e:
             logger.info(f"Error finding similar nodes: {e}")
             return []
 
-    async def traverse_graph(
-        self, start_node: str, depth_down: int = 4, depth_up: int = 2
+    def find_similar_with_expansion(
+        self, keywords: str, top_k: int = 5, expansion_factor: float = 0.5
     ):
-        try:
-            query = f"""
-            MATCH path=(n)-[r*..{depth_down}]->(m)
-            WHERE n.id = '{start_node}'
-            RETURN path
+        """
+        Find similar nodes + their neighbors using standard Cypher matches.
+        Independent of internal index names.
+        """
+        query_embedding = self._compute_embedding(keywords)
+
+        # We execute a UNION query:
+        # Part 1: The direct semantic matches (0 hops)
+        # Part 2: The neighbors of those matches (1 hop)
+
+        query = """
+            MATCH (n:Entity)
+            WHERE n.embedding IS NOT NULL
+            WITH n, array_cosine_similarity(n.embedding, CAST($query_embedding, 'FLOAT[384]')) AS score
+            ORDER BY score DESC
+            LIMIT $top_k
+            RETURN 
+                n.id AS id,
+                n.type AS type,
+                n.full_description AS description,
+                score AS base_score,
+                0 AS hops,
+                score AS relevance_score
+            
             UNION
-            MATCH path=(n)<-[r*..{depth_up}]-(m)
-            WHERE n.id = '{start_node}'
-            RETURN path
-            """
-            result = self.execute_query(query)
+            
+            MATCH (n:Entity)
+            WHERE n.embedding IS NOT NULL
+            WITH n, array_cosine_similarity(n.embedding, CAST($query_embedding, 'FLOAT[384]')) AS score
+            ORDER BY score DESC
+            LIMIT $top_k
+            MATCH (n)-[r]-(neighbor)
+            RETURN 
+                neighbor.id AS id,
+                neighbor.type AS type,
+                neighbor.full_description AS description,
+                score AS base_score,
+                1 AS hops,
+                CAST(score * $expansion_factor, 'FLOAT') AS relevance_score
+        """
 
-            paths = []
-            while result.has_next():
-                row = result.get_next()
-                path = row[0]
-                processed_path = []
-                for segment in path:
-                    start_node = {
-                        k: v for k, v in segment.start_node.items() if k != "embedding"
-                    }
-                    relationship = {
-                        "type": segment.type,
-                        "properties": segment.get("properties", {}),
-                    }
-                    end_node = {
-                        k: v for k, v in segment.end_node.items() if k != "embedding"
-                    }
-                    processed_path.append(
-                        {
-                            "start_node": start_node,
-                            "relationship": relationship,
-                            "end_node": end_node,
-                        }
-                    )
-                paths.append(processed_path)
+        result = self.conn.execute(
+            query,
+            parameters={
+                "query_embedding": query_embedding,
+                "top_k": top_k,
+                "expansion_factor": expansion_factor,
+            },
+        )
 
-            return paths
-        except Exception as e:
-            logger.info(f"Error traversing graph: {e}")
-            return None
+        return result.get_as_df()
 
-    async def find_similar_nodes_with_context(
-        self, description: str, top_k: int = 5, depth_down: int = 4, depth_up: int = 2
-    ):
-        try:
-            query_embedding = await self._compute_embedding(description)
-
-            query = f"CALL query_vector_index('Entity', 'embedding', {query_embedding}, {top_k}) YIELD node, score RETURN node.id, node.type, score"
-            result = self.conn.execute(query)
-
-            matched_nodes = []
-            while result.has_next():
-                row = result.get_next()
-                matched_nodes.append({"id": row[0], "type": row[1], "score": row[2]})
-
-            context = []
-            for node in matched_nodes:
-                node_id = node["id"]
-                subgraph = await self.traverse_graph(node_id, depth_down, depth_up)
-                context.append({"node": node, "subgraph": subgraph})
-
-            return context
-
-        except Exception as e:
-            logger.info(f"Error in semantic search with context expansion: {e}")
-            return []
-
-    async def preprocess_graph(self):
+    def preprocess_graph(self):
         try:
             query = (
                 "MATCH (n:Entity) WHERE n.embedding IS NULL RETURN n.id, n.description"
             )
-            result = self.conn.execute(query)
+            result = self.execute_query(query)
 
             while result.has_next():
                 row = result.get_next()
                 node_id, description = row[0], row[1]
-                embedding = await self._compute_embedding(description)
+                embedding = self._compute_embedding(description)
                 update_query = f"MATCH (n:Entity) WHERE n.id = '{node_id}' SET n.embedding = {embedding}"
                 self.execute_query(update_query)
 
