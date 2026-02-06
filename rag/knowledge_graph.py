@@ -84,12 +84,11 @@ class KnowledgeGraph:
                 logger.info("Entity table created successfully.")
             try:
                 self.conn.execute(
-                    "CALL create_hnsw_index('Entity', 'embedding', 'cosine')"
+                    "CALL CREATE_VECTOR_INDEX('Entity', 'Entity_embedding_idx', 'embedding', metric := 'COSINE');"
                 )
                 logger.info("HNSW vector index created successfully.")
             except Exception as e:
                 logger.info(f"Error creating HNSW index (might already exist): {e}")
-                pass
 
             try:
                 self.conn.execute("MATCH ()-[r:RELATED_TO]->() RETURN r LIMIT 1")
