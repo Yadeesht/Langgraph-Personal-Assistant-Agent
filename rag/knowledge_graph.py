@@ -2,19 +2,45 @@ import kuzu
 from pathlib import Path
 import json
 from sentence_transformers import SentenceTransformer
-from yfiles_jupyter_graphs_for_kuzu import KuzuGraphWidget
 import sys
 import pandas
 import networkx as nx
 import matplotlib.pyplot as plt
+from pydantic import BaseModel, Field
+from typing import List, Literal
+
 
 root = Path(__file__).parent.parent
 sys.path.append(str(root))
 from config.prompts import KNOWLEDGE_GRAPH_GENERATION_PROMPT
+from core.llm import build_llm
 from config.settings import KNOWLEDGE_GRAPH_DB
 from utils.helper import setup_logger
 
 logger = setup_logger(__name__)
+
+EntityType = Literal[
+    "Person", "Project", "Organization", "Tool", "Concept", "Event", "Resource"
+]
+
+
+class KnowledgeEntity(BaseModel):
+    id: str = Field(..., description="Unique name of the entity (e.g., 'DeepShield')")
+    type: EntityType = Field(..., description="The category of the entity")
+    search_keywords: List[str] = Field(
+        ..., description="3-5 search keywords for vector retrieval"
+    )
+    full_description: str = Field(
+        ..., description="A 1-sentence summary of what this is"
+    )
+
+
+class KnowledgeRelationship(BaseModel):
+    source: str = Field(..., description="The id of the starting node")
+    target: str = Field(..., description="The id of the ending node")
+    rel_type: str = Field(
+        ..., description="Relationship name (e.g., 'USES', 'DEVELOPED_AT')"
+    )
 
 
 class KnowledgeGraph:
@@ -49,6 +75,7 @@ class KnowledgeGraph:
                 )
                 logger.info("HNSW vector index created successfully.")
             except Exception as e:
+                logger.info(f"Error creating HNSW index (might already exist): {e}")
                 pass
 
             try:
@@ -92,7 +119,7 @@ class KnowledgeGraph:
     def close(self):
         self.conn.close()
 
-    def add_node(
+    def add_entity(
         self, node_id: str, node_type: str, search_keywords: str, full_description: str
     ):
         try:
@@ -248,7 +275,8 @@ class KnowledgeGraph:
             n.type AS type, 
             n.full_description AS description, 
             0 AS hops, 
-            seed_score AS base_score
+            seed_score AS base_score,
+            'DIRECT_HIT' AS Relations
         ORDER BY base_score DESC
         LIMIT $top_k
 
@@ -258,14 +286,15 @@ class KnowledgeGraph:
         MATCH (n:Entity)-[r]-(neighbor)
         WHERE n.embedding IS NOT NULL AND neighbor.embedding IS NOT NULL
         WITH n, r, neighbor, array_cosine_similarity(n.embedding, CAST($query_embedding, 'FLOAT[384]')) AS score, array_cosine_similarity(neighbor.embedding, CAST($query_embedding, 'FLOAT[384]')) AS score2
-        WITH neighbor, CAST((0.9*score + 0.1*score2),'FLOAT') AS weighted_score
+        WITH n,r,neighbor, CAST((0.9*score + 0.1*score2),'FLOAT') AS weighted_score
         WHERE weighted_score > 0.5
         RETURN 
             neighbor.id AS id, 
             neighbor.type AS type, 
             neighbor.full_description AS description, 
             1 AS hops, 
-            weighted_score AS base_score
+            weighted_score AS base_score,
+            (n.id + ' ' + r.rel_type + ' ' + neighbor.id) AS Relations
         """
 
         result = self.conn.execute(
@@ -300,29 +329,6 @@ class KnowledgeGraph:
         except Exception as e:
             logger.info(f"Error during graph preprocessing: {e}")
 
-    def generate_entity_relation(self, knowledge_graph_df: str, chat_history: str):
-        knowledge_graph_str = knowledge_graph_df.get_as_str()
-
-        prompt = f"""
-            You are an agent why is responsible  to generate the entity and relationships 
-            to create a knowledge graph from the chat hsitory of the user you have to 
-            identify the key infomation that
-            """
-
-    def generate_(self, question: str, context: list):
-        context_str = "\n".join([f"Node: {c['node']}" for c in context])
-        prompt = f"""
-        {KNOWLEDGE_GRAPH_GENERATION_PROMPT}        
-
-        Question: {question}
-
-        Graph Data:     # need to check how many tokens are there
-        {context_str}
-
-        Answer:
-        """
-        return prompt
-
     def visualize(self, output_path: str = "docs/images/knowledge_graph.png"):
         try:
             nodes_res = self.conn.execute("MATCH (n:Entity) RETURN n.id, n.type")
@@ -342,7 +348,7 @@ class KnowledgeGraph:
 
             while nodes_res.has_next():
                 node_id, n_type = nodes_res.get_next()
-                G.add_node(node_id, type=n_type)
+                G.add_entity(node_id, type=n_type)
                 node_colors.append(color_map.get(n_type, "#95a5a6"))
 
             while rels_res.has_next():
@@ -378,3 +384,19 @@ class KnowledgeGraph:
 
         except Exception as e:
             print(f"Error during visualization: {e}")
+
+    def generate_entity_relation(self, text: str) -> json:
+        """
+        Use LLM to extract knowledge graph from text.
+        """
+        prompt = f"{KNOWLEDGE_GRAPH_GENERATION_PROMPT}\nChat History:\n{text}\n"
+
+        response = build_llm(prompt)
+
+        try:
+            clean_response = response.replace("```json", "").replace("```", "").strip()
+            graph_data = json.loads(clean_response)
+            return graph_data
+        except Exception as e:
+            logger.info(f"Error parsing graph extraction: {e}")
+            return None

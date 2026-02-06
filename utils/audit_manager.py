@@ -56,6 +56,7 @@ def analyze_human_logs(
             SELECT thread_id, timestamp, actor, message, metadata 
             FROM human_logs 
             ORDER BY timestamp ASC;
+            LIMIT 30
         """
         cursor.execute(query)
         rows = cursor.fetchall()

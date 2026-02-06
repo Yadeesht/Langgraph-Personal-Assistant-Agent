@@ -11,8 +11,7 @@ logger = setup_logger(__name__)
 class State(TypedDict):
     messages: Annotated[list, add_messages]
     summary: Optional[str]
-    last_summary_timestamp: Optional[float] = datetime.now().timestamp()
-    last_knowledgegraph_timestamp: Optional[float] = datetime.now().timestamp()
+    number_of_summaries_today: Optional[int] = 0
     next: Optional[str]
 
 
@@ -93,12 +92,14 @@ def route_start(state: State) -> str:
                 ]:
                     return agent_name
 
+    # this logic is broken need to be fixed
     if state.get("last_summary_timestamp") is not None:
         dt_summry = datetime.fromtimestamp(state["last_summary_timestamp"])
         now = datetime.now()
 
-        if now.date() != dt_summry.date():
+        if now.date() != dt_summry.date() and count_tokens(messages[:-15]) > 500:
             state["summary"] = ""
+            state["number_of_summaries_today"] = 0
             state["last_summary_timestamp"] = now.timestamp()
             logger.info(
                 "🗑️ Cleared old summary due to time limit and knowledgeGraph is updated"
@@ -111,6 +112,7 @@ def route_start(state: State) -> str:
         )
 
         if dt_kg and now.date() != dt_kg.date():
+            logger.info(f"KnowledgeGraph Updating.")
             state["last_knowledgegraph_timestamp"] = now.timestamp()
             logger.info(
                 "🗑️ knowledgeGraph updated timestamp refreshed due to time limit"

@@ -1,23 +1,27 @@
 import json
 import httpx
 import asyncio
-from config.settings import DEFAULT_THREAD_ID
-from utils.audit_manager import log_event
-
 from langchain_core.messages import (
     AIMessage,
     SystemMessage,
     trim_messages,
     RemoveMessage,
 )
+from itertools import zip_longest
+
+import aiosqlite
+from datetime import datetime
+from config.settings import MEMORY_DB, DEFAULT_THREAD_ID
+from utils.audit_manager import log_event
+
 
 from core.state import State
 from utils.context_manager import sanitize_history
-from utils.helper import request_counter, setup_logger
-from utils.helper import count_tokens, get_current_time
+from utils.helper import request_counter, setup_logger, count_tokens, get_current_time
 from config.prompts import HISTORY_SUMMARIZE_PROMPT
 from core.llm import build_llm
 from core.codeagent import CodeExecutionAgent
+from rag.knowledge_graph import KnowledgeGraph
 
 
 logger = setup_logger(__name__)
@@ -137,6 +141,15 @@ def agent_node_factory(llm_with_tools, system_prompt, agent_name: str):
             tool_calls=getattr(msg, "tool_calls", []),
         )
 
+        if hasattr(agent_message, "content") and isinstance(agent_message.content, str):
+            if "CLARIFICATION NEEDED:" in agent_message.content.upper():
+                logger.info("❓ Clarification needed - routing to human")
+                agent_name = "Clarification Agent"
+
+            if "TALK TO USER:" in agent_message.content.upper():
+                logger.info("💬 Agent wants to talk to user - routing to human")
+                agent_name = "Clarification Agent"
+
         # Log agent response for audit trail
         try:
             await log_event(
@@ -215,7 +228,9 @@ def code_execution_factory(llm, tool_sets, agent_name: str):
 async def summerizer_node(state: State):
     logger.info("📝 Summarizer node activated to condense conversation history.")
 
-    messages = state.get("summary") + state["messages"][:-15]
+    state["number_of_summaries_today"] = state.get("number_of_summaries_today", 0) + 1
+    # right now the prompt is not aware of we sending the summary and to summerize previous messages too
+    messages = f"Summary:\n{state.get('summary', '')}\n\n Chat Messages:\n{state['messages'][:-15]}"
     llm = build_llm()
     messages = [SystemMessage(content=HISTORY_SUMMARIZE_PROMPT)] + messages
     cleaned = await llm.ainvoke(messages)
@@ -238,3 +253,54 @@ async def summerizer_node(state: State):
         logger.error(f"Failed to log summarizer audit event: {e}")
 
     return {"summary": summarized_content, "messages": delete_actions}
+
+
+async def updation_knowledge_graph(state: State, thread_id: str, db_path: str):
+    try:
+        last_update = state.get("last_knowledgegraph_timestamp", 0)
+
+        if isinstance(last_update, (int, float)):
+            last_update_str = datetime.fromtimestamp(last_update).isoformat()
+        else:
+            last_update_str = str(last_update)
+
+        query = """"SELECT actor,message FROM human_logs WHERE thread_id = ? AND actor IN (?,?,?) AND timestamp > ? ORDER BY timestamp ASC;"""
+
+        target_actors = ("human", "supervisor", "clarification_agent")
+
+        async with aiosqlite.connect(db_path) as db:
+            async with db.execute(
+                query, (thread_id, *target_actors, last_update_str)
+            ) as cursor:
+                rows = await cursor.fetchall()
+
+        if not rows:
+            return
+
+        extraction_context = "\n".join([f"{actor}: {msg}" for actor, msg in rows])
+
+        kg = KnowledgeGraph()
+        graph_data = kg.generate_entity_relation(extraction_context)
+
+        entities = graph_data["candidates"].get("entities", [])
+        relations = graph_data["candidates"].get("relations", [])
+
+        for entity, relation in zip_longest(entities, relations):
+            if entity is not None:
+                kg.add_entity(
+                    node_id=entity["id"],
+                    node_type=entity.get("type", "unknown"),
+                    search_keywords=entity.get("keywords", ""),
+                    full_description=entity.get("description", ""),
+                )
+
+            if relation is not None:
+                kg.add_relationship(
+                    source_id=relation["source"],
+                    target_id=relation["target"],
+                    relation_type=relation.get("type", "unknown"),
+                )
+
+        state["last_knowledgegraph_timestamp"] = datetime.now().timestamp()
+    except Exception as e:
+        logger.error(f"Knowledge graph update failed: {e}")
