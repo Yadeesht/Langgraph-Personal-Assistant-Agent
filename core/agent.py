@@ -7,10 +7,15 @@ from langchain_core.messages import (
     trim_messages,
     RemoveMessage,
 )
-from itertools import zip_longest
 
 import aiosqlite
 from datetime import datetime
+import sys
+from pathlib import Path
+
+root = Path(__file__).parent.parent
+sys.path.append(str(root))
+
 from config.settings import MEMORY_DB, DEFAULT_THREAD_ID
 from utils.audit_manager import log_event
 
@@ -21,7 +26,6 @@ from utils.helper import request_counter, setup_logger, count_tokens, get_curren
 from config.prompts import HISTORY_SUMMARIZE_PROMPT
 from core.llm import build_llm
 from core.codeagent import CodeExecutionAgent
-from rag.knowledge_graph import KnowledgeGraph
 
 
 logger = setup_logger(__name__)
@@ -257,6 +261,8 @@ async def summerizer_node(state: State):
 
 async def updation_knowledge_graph(state: State, thread_id: str, db_path: str):
     try:
+        from rag.knowledge_graph import KnowledgeGraph
+
         last_update = state.get("last_knowledgegraph_timestamp", 0)
 
         if isinstance(last_update, (int, float)):
@@ -280,25 +286,51 @@ async def updation_knowledge_graph(state: State, thread_id: str, db_path: str):
         extraction_context = "\n".join([f"{actor}: {msg}" for actor, msg in rows])
 
         kg = KnowledgeGraph()
-        graph_data = kg.generate_entity_relation(extraction_context)
+        candidates_json = kg.generate_entity_relation(extraction_context)
 
-        entities = graph_data["candidates"].get("entities", [])
-        relations = graph_data["candidates"].get("relations", [])
+        entities = candidates_json.get("candidates", {}).get("entities", [])
+        if not entities:
+            return
 
-        for entity, relation in zip_longest(entities, relations):
-            if entity is not None:
+        types_df = kg.search_similar_node(entities)
+
+        final_update_json = kg.validate_entity_relation(types_df, candidates_json)
+        resolution = final_update_json.get("resolution", {})
+
+        for entity in resolution.get("entities", []):
+            action = entity.get("action", "DISCARD").upper()
+
+            if action == "CREATE":
                 kg.add_entity(
                     node_id=entity["id"],
                     node_type=entity.get("type", "unknown"),
-                    search_keywords=entity.get("keywords", ""),
-                    full_description=entity.get("description", ""),
+                    search_keywords=", ".join(entity.get("keywords", [])),
+                    description=entity.get("description", ""),
+                )
+            elif action == "UPDATE":
+                kg.modify_entity(
+                    node_id=entity["id"],
+                    updates={
+                        "type": entity.get("type"),
+                        "description": entity.get("description"),
+                        "search_keywords": ", ".join(entity.get("keywords", [])),
+                    },
                 )
 
-            if relation is not None:
+        for rel in resolution.get("relationships", []):
+            action = rel.get("action", "DISCARD").upper()
+
+            if action == "CREATE":
                 kg.add_relationship(
-                    source_id=relation["source"],
-                    target_id=relation["target"],
-                    relation_type=relation.get("type", "unknown"),
+                    source=rel["source"],
+                    target=rel["target"],
+                    relation_type=rel.get("relation_type", "unknown"),
+                )
+            elif action == "UPDATE":
+                kg.modify_relationship(
+                    source=rel["source"],
+                    target=rel["target"],
+                    relation_type=rel.get("relation_type", "unknown"),
                 )
 
         state["last_knowledgegraph_timestamp"] = datetime.now().timestamp()

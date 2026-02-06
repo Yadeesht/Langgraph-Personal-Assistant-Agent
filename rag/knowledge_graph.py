@@ -1,3 +1,4 @@
+from unittest import result
 import kuzu
 from pathlib import Path
 import json
@@ -12,8 +13,10 @@ from typing import List, Literal
 
 root = Path(__file__).parent.parent
 sys.path.append(str(root))
-from config.prompts import KNOWLEDGE_GRAPH_GENERATION_PROMPT
-from core.llm import build_llm
+from config.prompts import (
+    KNOWLEDGE_GRAPH_EXTRACTION_PROMPT,
+    KNOWLEDGE_GRAPH_VALIDATION_PROMPT,
+)
 from config.settings import KNOWLEDGE_GRAPH_DB
 from utils.helper import setup_logger
 
@@ -30,15 +33,13 @@ class KnowledgeEntity(BaseModel):
     search_keywords: List[str] = Field(
         ..., description="3-5 search keywords for vector retrieval"
     )
-    full_description: str = Field(
-        ..., description="A 1-sentence summary of what this is"
-    )
+    description: str = Field(..., description="A 1-sentence summary of what this is")
 
 
 class KnowledgeRelationship(BaseModel):
     source: str = Field(..., description="The id of the starting node")
     target: str = Field(..., description="The id of the ending node")
-    rel_type: str = Field(
+    relation_type: str = Field(
         ..., description="Relationship name (e.g., 'USES', 'DEVELOPED_AT')"
     )
 
@@ -49,8 +50,20 @@ class KnowledgeGraph:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.db = kuzu.Database(str(self.path))
         self.conn = kuzu.Connection(self.db)
-        self.model = SentenceTransformer("BAAI/bge-small-en-v1.5")
+        self._model = None
         self._create_generic_schema()
+
+    @property
+    def model(self):
+        if self._model is None:
+            try:
+                self._model = SentenceTransformer("D:/Agentic AI/models/bge-small")
+
+                logger.info("SentenceTransformer model loaded successfully.")
+            except Exception as e:
+                logger.info(f"Error loading SentenceTransformer model: {e}")
+                raise e
+        return self._model
 
     def _create_generic_schema(self):
         try:
@@ -63,7 +76,7 @@ class KnowledgeGraph:
                         id STRING, 
                         type STRING, 
                         search_keywords STRING, 
-                        full_description STRING, 
+                        description STRING, 
                         embedding FLOAT[384], 
                         PRIMARY KEY(id)
                     )
@@ -85,7 +98,7 @@ class KnowledgeGraph:
                 self.conn.execute("""
                     CREATE REL TABLE RELATED_TO(
                         FROM Entity TO Entity, 
-                        rel_type STRING
+                        relation_type STRING
                     )
                 """)
                 logger.info("RELATED_TO table created successfully.")
@@ -120,40 +133,32 @@ class KnowledgeGraph:
         self.conn.close()
 
     def add_entity(
-        self, node_id: str, node_type: str, search_keywords: str, full_description: str
+        self, node_id: str, node_type: str, search_keywords: str, description: str
     ):
         try:
-            existing_node_query = f"MATCH (n:Entity) WHERE n.id = '{node_id}' RETURN n"
-            result = self.execute_query(existing_node_query)
-            if result and result.has_next():
-                logger.info(
-                    f"Node with id '{node_id}' already exists. Skipping insertion."
-                )
-                return
-            text = f"{node_id} {node_type} {search_keywords}"
-
+            text = (
+                f"Entity: {node_id} | Type: {node_type} | Keywords: {search_keywords}"
+            )
             embedding = self._compute_embedding(text)
 
             query = f"""
             MERGE (n:Entity {{id: '{node_id}'}})
             SET n.type = '{node_type}', 
                 n.search_keywords = '{search_keywords}',
-                n.full_description = '{full_description}', 
+                n.description = '{description}', 
                 n.embedding = {embedding}
             """
-
             self.execute_query(query)
-            logger.info(f"Node '{node_id}' upserted with keyword-dense embedding.")
-
+            logger.info(f"✅ Node '{node_id}' re-created with aligned embedding.")
         except Exception as e:
-            logger.info(f"Error adding node: {e}")
+            logger.error(f"Error adding node: {e}")
 
-    def add_relationship(self, source: str, target: str, rel_type: str):
+    def add_relationship(self, source: str, target: str, relation_type: str):
         try:
             query = f"""
             MATCH (a:Entity), (b:Entity)
             WHERE a.id = '{source}' AND b.id = '{target}'
-            CREATE (a)-[:RELATED_TO {{ rel_type: '{rel_type}' }}]->(b)
+            CREATE (a)-[:RELATED_TO {{ relation_type: '{relation_type}' }}]->(b)
             """
             self.execute_query(query)
         except Exception as e:
@@ -176,12 +181,12 @@ class KnowledgeGraph:
             logger.info(f"Error modifying node attributes: {e}")
             return
 
-    def modify_relationship(self, source: str, target: str, rel_type: str):
+    def modify_relationship(self, source: str, target: str, relation_type: str):
         try:
             query = f"""
             MATCH (a:Entity)-[r:RELATED_TO]->(b:Entity)
             WHERE a.id = '{source}' AND b.id = '{target}'
-            SET r.rel_type = '{rel_type}'
+            SET r.relation_type = '{relation_type}'
             """
             self.execute_query(query)
             logger.info(
@@ -231,7 +236,7 @@ class KnowledgeGraph:
                 RETURN 
                     n.id AS id, 
                     n.type AS type, 
-                    n.full_description AS description,  
+                    n.description AS description,  
                     score AS base_score
                 ORDER BY base_score DESC
                 LIMIT $top_k
@@ -273,7 +278,7 @@ class KnowledgeGraph:
         RETURN 
             n.id AS id, 
             n.type AS type, 
-            n.full_description AS description, 
+            n.description AS description, 
             0 AS hops, 
             seed_score AS base_score,
             'DIRECT_HIT' AS Relations
@@ -291,10 +296,10 @@ class KnowledgeGraph:
         RETURN 
             neighbor.id AS id, 
             neighbor.type AS type, 
-            neighbor.full_description AS description, 
+            neighbor.description AS description, 
             1 AS hops, 
             weighted_score AS base_score,
-            (n.id + ' ' + r.rel_type + ' ' + neighbor.id) AS Relations
+            (n.id + ' ' + r.relation_type + ' ' + neighbor.id) AS Relations
         """
 
         result = self.conn.execute(
@@ -313,9 +318,49 @@ class KnowledgeGraph:
 
         return df
 
+    def search_similar_node(self, entity: list) -> pandas.DataFrame:
+        try:
+            all_results = []
+            for en in entity:
+                keywords = en.get("search_keywords", [])
+                keywords_str = (
+                    " ".join(keywords) if isinstance(keywords, list) else keywords
+                )
+
+                text = f"Entity: {en.get('id', '')} | Type: {en.get('type', '')} | Keywords: {keywords_str}"
+                query_embedding = self._compute_embedding(text)
+
+                query = """
+                MATCH (n:Entity)
+                WHERE n.embedding IS NOT NULL 
+                WITH n, array_cosine_similarity(n.embedding, CAST($query_embedding, 'FLOAT[384]')) AS score
+                WHERE score > 0.6
+                OPTIONAL MATCH (n)-[r:RELATED_TO]-(m:Entity)
+                WITH n, score, collect(r.relation_type + ' with ' + m.id) AS connections
+                RETURN n.id AS id, n.type AS type, n.description AS description, 
+                    connections AS relations, score AS similarity_score
+                ORDER BY similarity_score DESC
+                """
+                result = self.conn.execute(
+                    query, parameters={"query_embedding": query_embedding}
+                )
+                all_results.append(result.get_as_df())
+
+            if not all_results:
+                return pandas.DataFrame()
+            df = pandas.concat(all_results, ignore_index=True).drop_duplicates(
+                subset=["id"]
+            )
+            return df
+        except Exception as e:
+            logger.error(f"Error searching similar nodes: {e}")
+            return pandas.DataFrame()
+
     def preprocess_graph(self):
         try:
-            query = "MATCH (n:Entity) WHERE n.embedding IS NULL RETURN n.id, n.full_description"
+            query = (
+                "MATCH (n:Entity) WHERE n.embedding IS NULL RETURN n.id, n.description"
+            )
             result = self.execute_query(query)
 
             while result.has_next():
@@ -333,7 +378,7 @@ class KnowledgeGraph:
         try:
             nodes_res = self.conn.execute("MATCH (n:Entity) RETURN n.id, n.type")
             rels_res = self.conn.execute(
-                "MATCH (a)-[r]->(b) RETURN a.id, b.id, r.rel_type"
+                "MATCH (a)-[r]->(b) RETURN a.id, b.id, r.relation_type"
             )
 
             G = nx.DiGraph()
@@ -348,12 +393,12 @@ class KnowledgeGraph:
 
             while nodes_res.has_next():
                 node_id, n_type = nodes_res.get_next()
-                G.add_entity(node_id, type=n_type)
+                G.add_node(node_id, type=n_type)
                 node_colors.append(color_map.get(n_type, "#95a5a6"))
 
             while rels_res.has_next():
-                u, v, rel_type = rels_res.get_next()
-                G.add_edge(u, v, label=rel_type)
+                u, v, relation_type = rels_res.get_next()
+                G.add_edge(u, v, label=relation_type)
 
             plt.figure(figsize=(16, 10))
 
@@ -389,12 +434,40 @@ class KnowledgeGraph:
         """
         Use LLM to extract knowledge graph from text.
         """
-        prompt = f"{KNOWLEDGE_GRAPH_GENERATION_PROMPT}\nChat History:\n{text}\n"
+        from core.llm import build_llm
 
-        response = build_llm(prompt)
+        prompt = f"{KNOWLEDGE_GRAPH_EXTRACTION_PROMPT}\nChat History:\n{text}\n"
+
+        llm_model = build_llm()
+        response = llm_model.invoke(prompt)
 
         try:
-            clean_response = response.replace("```json", "").replace("```", "").strip()
+            raw_text = response.content
+            clean_response = raw_text.replace("```json", "").replace("```", "").strip()
+
+            graph_data = json.loads(clean_response)
+            return graph_data
+        except Exception as e:
+            logger.info(f"Error parsing graph extraction: {e}")
+            return None
+
+    def validate_entity_relation(
+        self, existing_knowledge: pandas.DataFrame, new_knowledge: json
+    ) -> bool:
+        """
+        Use LLM to validate the extracted knowledge graph JSON against the conversation.
+        """
+        from core.llm import build_llm
+
+        prompt = f"{KNOWLEDGE_GRAPH_VALIDATION_PROMPT}\nExisting Knowledge:\n{existing_knowledge}\nNew Knowledge:\n{new_knowledge}\n"
+
+        llm_model = build_llm()
+        response = llm_model.invoke(prompt)
+
+        try:
+            raw_text = response.content
+            clean_response = raw_text.replace("```json", "").replace("```", "").strip()
+
             graph_data = json.loads(clean_response)
             return graph_data
         except Exception as e:

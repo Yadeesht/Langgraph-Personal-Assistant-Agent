@@ -275,7 +275,7 @@ Completion → "FINAL ANSWER: Created Doc 'Meeting Notes' (ID: doc123). Link: ht
 HISTORY_SUMMARIZE_PROMPT = """You are an expert at summarizing conversations between an AI assistant and a user. 
 Given the following conversation history, produce a concise summary that captures the key points, decisions, and actions taken. Focus on clarity and brevity."""
 
-KNOWLEDGE_GRAPH_PROMPT = """You are an AI assistant that answers questions based on a knowledge graph. Use the provided graph data to generate accurate and relevant responses."""
+KNOWLEDGE_GRAPH_SEARCH_PROMPT = """You are an AI assistant that answers questions based on a knowledge graph. Use the provided graph data to generate accurate and relevant responses."""
 
 
 KNOWLEDGE_GRAPH_EXTRACTION_PROMPT = """
@@ -309,25 +309,25 @@ You MUST categorize every identified entity into exactly one of these types:
         "id": "Raajan",
         "type": "Person",
         "description": "Collaborator of Yadeesh in a college club; email: raanjan@gmail.com",
-        "keywords": ["raanjan", "raanjan@gmail.com", "college club"]
+        "search_keywords": ["raanjan", "raanjan@gmail.com", "college club"]
       },
       {
         "id": "College Club",
         "type": "Organization",
         "description": "Student-led club at Yadeesh's university where he collaborates with others.",
-        "keywords": ["college club", "student organization"]
+        "search_keywords": ["college club", "student organization"]
       }
     ],
     "relationships": [
       {
         "source": "Yadeesh",
         "target": "Raajan",
-        "type": "WORKS_WITH"
+        "relation_type": "WORKS_WITH"
       },
       {
         "source": "Raajan",
         "target": "College Club",
-        "type": "MEMBER_OF"
+        "relation_type": "MEMBER_OF"
       }
     ]
   }
@@ -335,4 +335,40 @@ You MUST categorize every identified entity into exactly one of these types:
 
 ### TASK
 Analyze the following logs between 'human', 'supervisor', and 'clarification_agent'. Extract the relevant JSON. Return ONLY the JSON object.
+"""
+KNOWLEDGE_GRAPH_VALIDATION_PROMPT = """
+### ROLE
+You are a Knowledge Graph Reconciliation Expert. Your task is to resolve NEW candidate entities and relationships against EXISTING graph data to ensure a clean, non-redundant memory for Yadeesh.
+
+### DISAMBIGUATION RULES
+1. **Semantic Identity**: If a candidate (e.g., 'VIT') matches an existing node (e.g., 'VIT Chennai'), do NOT create a new node. Issue an 'UPDATE' command.
+2. **Type Conflict**: If names are similar but TYPES differ (e.g., 'ViT' as Tool/Concept vs 'VIT' as Organization), they are DISTINCT. Treat them as a 'CREATE'.
+3. **Relationship Logic**: If a relationship already exists between two resolved IDs (e.g., A -> STUDIES_AT -> B), do not duplicate it. Only 'CREATE' if it's new or 'UPDATE' if the type is more specific.
+
+### INPUT DATA
+- **Existing Knowledge**: (JSON list of similar nodes and their current relations)
+- **New Candidates**: (The JSON output from the Extraction step)
+
+### OUTPUT FORMAT (JSON ONLY)
+{
+  "resolution": {
+    "entities": [
+      {
+        "action": "CREATE | UPDATE ",
+        "id": "FinalID",
+        "type": "EntityType",
+        "description": "Appended or new summary",
+        "search_keywords": ["key1", "key2"]
+      }
+    ],
+    "relationships": [
+      {
+        "action": "CREATE | UPDATE ",
+        "source": "SourceID",
+        "target": "TargetID",
+        "relation_type": "REL_TYPE"
+      }
+    ]
+  }
+}
 """

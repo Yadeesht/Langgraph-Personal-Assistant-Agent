@@ -113,6 +113,7 @@ def route_start(state: State) -> str:
 
         if dt_kg and now.date() != dt_kg.date():
             logger.info(f"KnowledgeGraph Updating.")
+
             state["last_knowledgegraph_timestamp"] = now.timestamp()
             logger.info(
                 "🗑️ knowledgeGraph updated timestamp refreshed due to time limit"
