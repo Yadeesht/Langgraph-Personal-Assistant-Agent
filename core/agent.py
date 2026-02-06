@@ -259,18 +259,21 @@ async def summerizer_node(state: State):
     return {"summary": summarized_content, "messages": delete_actions}
 
 
-async def updation_knowledge_graph(state: State, thread_id: str, db_path: str):
+async def updation_knowledge_graph(
+    state: State, thread_id: str, db_path: str = MEMORY_DB
+):
     try:
         from rag.knowledge_graph import KnowledgeGraph
 
-        last_update = state.get("last_knowledgegraph_timestamp", 0)
+        logger.info("🔄 Starting knowledge graph update process.")
+        last_update = state.get("last_knowledgegraph_timestamp", 0.0)
 
         if isinstance(last_update, (int, float)):
             last_update_str = datetime.fromtimestamp(last_update).isoformat()
         else:
             last_update_str = str(last_update)
 
-        query = """"SELECT actor,message FROM human_logs WHERE thread_id = ? AND actor IN (?,?,?) AND timestamp > ? ORDER BY timestamp ASC;"""
+        query = "SELECT actor,message FROM human_logs WHERE thread_id = ? AND actor IN (?,?,?) AND timestamp > ? ORDER BY timestamp ASC;"
 
         target_actors = ("human", "supervisor", "clarification_agent")
 
@@ -279,14 +282,18 @@ async def updation_knowledge_graph(state: State, thread_id: str, db_path: str):
                 query, (thread_id, *target_actors, last_update_str)
             ) as cursor:
                 rows = await cursor.fetchall()
-
+                logger.info(f"🔎 Found {len(rows)} new log entries in DB.")
         if not rows:
+            logger.info("↩️ No new logs found since last update. Exiting.")  # NEW LOG
             return
 
         extraction_context = "\n".join([f"{actor}: {msg}" for actor, msg in rows])
-
         kg = KnowledgeGraph()
         candidates_json = kg.generate_entity_relation(extraction_context)
+
+        logger.info(
+            f"Extracted candidates for KG update: {json.dumps(candidates_json, indent=2)}"
+        )
 
         entities = candidates_json.get("candidates", {}).get("entities", [])
         if not entities:
@@ -297,6 +304,9 @@ async def updation_knowledge_graph(state: State, thread_id: str, db_path: str):
         final_update_json = kg.validate_entity_relation(types_df, candidates_json)
         resolution = final_update_json.get("resolution", {})
 
+        logger.info(
+            f"The validated KG update resolution: {json.dumps(resolution, indent=2)}"
+        )
         for entity in resolution.get("entities", []):
             action = entity.get("action", "DISCARD").upper()
 
@@ -332,7 +342,7 @@ async def updation_knowledge_graph(state: State, thread_id: str, db_path: str):
                     target=rel["target"],
                     relation_type=rel.get("relation_type", "unknown"),
                 )
+        logger.info("✅ Knowledge graph update process completed successfully.")
 
-        state["last_knowledgegraph_timestamp"] = datetime.now().timestamp()
     except Exception as e:
         logger.error(f"Knowledge graph update failed: {e}")

@@ -41,7 +41,7 @@ The agent's logic is defined as a graph using `langgraph` in `core/graph.py`. Th
     *   **`agent.py`:** A factory for creating agent nodes in the graph.
     *   **`codeagent.py`:** The `CodeExecutionAgent` that generates and executes Python code.
     *   **`state.py`:** Defines the state object that is passed between nodes in the graph.
-*   **`MCP/`:** This directory seems to be a custom implementation of a multi-server agent framework.
+*   **`app_mcp/`:** This directory seems to be a custom implementation of a multi-server agent framework.
     *   **`core/`:** Contains the server initialization and the individual server scripts.
     *   **`tools/`:** Contains the tools that the agents can use, such as `gdocs_tools.py`, `gmail_tools.py`, etc.
 *   **`utils/`:** Contains utility functions for logging, checkpointing, and other tasks.

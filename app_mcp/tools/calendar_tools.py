@@ -16,9 +16,9 @@ from typing import Any, Dict, List, Optional, Union
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-from mcp.auth.service_decoder import get_google_service
-from mcp.core.planning_server import planning_server
-from mcp.helper.pydantic_models import (
+from app_mcp.auth.service_decoder import get_google_service
+from app_mcp.core.server_init import planning_server
+from app_mcp.helper.pydantic_models import (
     CalendarInfo,
     ListCalendarsResponse,
     GetEventsRequest,
@@ -417,9 +417,11 @@ async def get_events(
                 f"[get_events] Retrieving single event with ID: {request.event_id}"
             )
             event = await asyncio.to_thread(
-                lambda: service.events()
-                .get(calendarId=request.calendar_id, eventId=request.event_id)
-                .execute()
+                lambda: (
+                    service.events()
+                    .get(calendarId=request.calendar_id, eventId=request.event_id)
+                    .execute()
+                )
             )
             items = [event]
         else:
@@ -767,13 +769,15 @@ async def create_event(
                     if drive_service:
                         try:
                             file_metadata = await asyncio.to_thread(
-                                lambda: drive_service.files()
-                                .get(
-                                    fileId=file_id,
-                                    fields="mimeType,name",
-                                    supportsAllDrives=True,
+                                lambda: (
+                                    drive_service.files()
+                                    .get(
+                                        fileId=file_id,
+                                        fields="mimeType,name",
+                                        supportsAllDrives=True,
+                                    )
+                                    .execute()
                                 )
-                                .execute()
                             )
                             mime_type = file_metadata.get("mimeType", mime_type)
                             filename = file_metadata.get("name")
@@ -798,24 +802,28 @@ async def create_event(
                         }
                     )
             created_event = await asyncio.to_thread(
-                lambda: service.events()
-                .insert(
-                    calendarId=request.calendar_id,
-                    body=event_body,
-                    supportsAttachments=True,
-                    conferenceDataVersion=1 if request.add_google_meet else 0,
+                lambda: (
+                    service.events()
+                    .insert(
+                        calendarId=request.calendar_id,
+                        body=event_body,
+                        supportsAttachments=True,
+                        conferenceDataVersion=1 if request.add_google_meet else 0,
+                    )
+                    .execute()
                 )
-                .execute()
             )
         else:
             created_event = await asyncio.to_thread(
-                lambda: service.events()
-                .insert(
-                    calendarId=request.calendar_id,
-                    body=event_body,
-                    conferenceDataVersion=1 if request.add_google_meet else 0,
+                lambda: (
+                    service.events()
+                    .insert(
+                        calendarId=request.calendar_id,
+                        body=event_body,
+                        conferenceDataVersion=1 if request.add_google_meet else 0,
+                    )
+                    .execute()
                 )
-                .execute()
             )
 
         link = created_event.get("htmlLink", "No link available")
@@ -1004,9 +1012,11 @@ async def modify_event(
         # Get the existing event to preserve fields that aren't being updated
         try:
             existing_event = await asyncio.to_thread(
-                lambda: service.events()
-                .get(calendarId=request.calendar_id, eventId=request.event_id)
-                .execute()
+                lambda: (
+                    service.events()
+                    .get(calendarId=request.calendar_id, eventId=request.event_id)
+                    .execute()
+                )
             )
             logger.info(
                 "[modify_event] Successfully retrieved existing event before update"
@@ -1061,14 +1071,16 @@ async def modify_event(
 
         # Proceed with the update
         updated_event = await asyncio.to_thread(
-            lambda: service.events()
-            .update(
-                calendarId=request.calendar_id,
-                eventId=request.event_id,
-                body=event_body,
-                conferenceDataVersion=1,
+            lambda: (
+                service.events()
+                .update(
+                    calendarId=request.calendar_id,
+                    eventId=request.event_id,
+                    body=event_body,
+                    conferenceDataVersion=1,
+                )
+                .execute()
             )
-            .execute()
         )
 
         link = updated_event.get("htmlLink", "No link available")
@@ -1144,9 +1156,11 @@ async def delete_event(event_id: str, calendar_id: str = "primary") -> str:
         # Try to get the event first to verify it exists
         try:
             await asyncio.to_thread(
-                lambda: service.events()
-                .get(calendarId=request.calendar_id, eventId=request.event_id)
-                .execute()
+                lambda: (
+                    service.events()
+                    .get(calendarId=request.calendar_id, eventId=request.event_id)
+                    .execute()
+                )
             )
             logger.info(
                 "[delete_event] Successfully verified event exists before deletion"
@@ -1165,9 +1179,11 @@ async def delete_event(event_id: str, calendar_id: str = "primary") -> str:
 
         # Proceed with the deletion
         await asyncio.to_thread(
-            lambda: service.events()
-            .delete(calendarId=request.calendar_id, eventId=request.event_id)
-            .execute()
+            lambda: (
+                service.events()
+                .delete(calendarId=request.calendar_id, eventId=request.event_id)
+                .execute()
+            )
         )
 
         confirmation_message = f"Successfully deleted event (ID: {request.event_id}) from calendar '{request.calendar_id}'."

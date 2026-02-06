@@ -7,7 +7,7 @@ multiple Google Docs API calls for complex table manipulations.
 
 import asyncio
 from typing import List, Dict, Any, Tuple
-from mcp.helper.docs_helper import (
+from app_mcp.helper.docs_helper import (
     create_insert_table_request,
     validate_table_data,
     find_tables,

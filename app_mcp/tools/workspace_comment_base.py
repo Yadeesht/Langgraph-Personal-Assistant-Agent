@@ -9,8 +9,8 @@ import asyncio
 from pathlib import Path
 
 
-from mcp.auth.service_decoder import get_google_service
-from mcp.core.server_init import content_server
+from app_mcp.auth.service_decoder import get_google_service
+from app_mcp.core.server_init import content_server
 from utils.helper import setup_logger
 
 logger = setup_logger(__name__)

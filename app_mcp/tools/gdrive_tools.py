@@ -7,11 +7,11 @@ from urllib.parse import urlparse
 from urllib.request import url2pathname
 
 import httpx
-from mcp.auth.service_decoder import get_google_service
-from mcp.auth.oauth_config import is_stateless_mode
-from mcp.core.server_init import content_server
-from mcp.helper.utils import extract_office_xml_text
-from mcp.helper.pydantic_models import (
+from app_mcp.auth.service_decoder import get_google_service
+from app_mcp.auth.oauth_config import is_stateless_mode
+from app_mcp.core.server_init import content_server
+from app_mcp.helper.utils import extract_office_xml_text
+from app_mcp.helper.pydantic_models import (
     SearchDriveFilesRequest,
     SearchDriveFilesResponse,
     GetDriveFileContentRequest,

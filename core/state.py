@@ -3,15 +3,21 @@ from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
 from utils.helper import setup_logger, count_tokens
-from datetime import datetime
+import time
+import asyncio
+from config.settings import DEFAULT_THREAD_ID, MEMORY_DB
 
 logger = setup_logger(__name__)
+
+
+SECONDS_IN_DAY = 86400
+IST_OFFSET = 19800
 
 
 class State(TypedDict):
     messages: Annotated[list, add_messages]
     summary: Optional[str]
-    number_of_summaries_today: Optional[int] = 0
+    last_knowledgegraph_timestamp: Optional[float] = 1770195927.8211298
     next: Optional[str]
 
 
@@ -67,7 +73,7 @@ def internal_agent_route(state: State) -> str:
     return "supervisor"
 
 
-def route_start(state: State) -> str:
+async def route_start(state: State) -> str:
     messages = state["messages"]
 
     if len(messages) < 2:
@@ -92,32 +98,37 @@ def route_start(state: State) -> str:
                 ]:
                     return agent_name
 
-    # this logic is broken need to be fixed
-    if state.get("last_summary_timestamp") is not None:
-        dt_summry = datetime.fromtimestamp(state["last_summary_timestamp"])
-        now = datetime.now()
+    now_float = time.time()
+    messages = state.get("messages", [])
+    current_day_ist = int((now_float + IST_OFFSET) // SECONDS_IN_DAY)
 
-        if now.date() != dt_summry.date() and count_tokens(messages[:-15]) > 500:
-            state["summary"] = ""
-            state["number_of_summaries_today"] = 0
-            state["last_summary_timestamp"] = now.timestamp()
+    # 1. Summary Cleanup Logic
+    last_sum_ts = state.get("last_summary_timestamp")
+    if last_sum_ts is not None:
+        summary_day_ist = int((last_sum_ts + IST_OFFSET) // SECONDS_IN_DAY)
+
+        if current_day_ist > summary_day_ist:
+            if count_tokens(messages[:-15]) > 500:
+                state["summary"] = ""
+                state["number_of_summaries_today"] = 0
+                state["last_summary_timestamp"] = now_float
+                logger.info("🗑️ Cleared old summary: New calendar date detected.")
+
+    # 2. Knowledge Graph Update Logic
+    last_kg_ts = state.get("last_knowledgegraph_timestamp")
+    if last_kg_ts is not None:
+        kg_day_ist = int((last_kg_ts + IST_OFFSET) // SECONDS_IN_DAY)
+
+        if current_day_ist > kg_day_ist:
             logger.info(
-                "🗑️ Cleared old summary due to time limit and knowledgeGraph is updated"
+                "🔄 KnowledgeGraph Updating: Reconciling project data for new local date."
             )
+            from core.agent import updation_knowledge_graph
 
-        dt_kg = (
-            datetime.fromtimestamp(state["last_knowledgegraph_timestamp"])
-            if state.get("last_knowledgegraph_timestamp")
-            else None
-        )
-
-        if dt_kg and now.date() != dt_kg.date():
-            logger.info(f"KnowledgeGraph Updating.")
-
-            state["last_knowledgegraph_timestamp"] = now.timestamp()
-            logger.info(
-                "🗑️ knowledgeGraph updated timestamp refreshed due to time limit"
+            await updation_knowledge_graph(
+                state=state, thread_id=DEFAULT_THREAD_ID, db_path=MEMORY_DB
             )
+            state["last_knowledgegraph_timestamp"] = now_float
 
     if count_tokens(messages[:-15]) > 8000:
         return "summerizer_node"
