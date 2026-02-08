@@ -139,8 +139,10 @@ def agent_node_factory(llm_with_tools, system_prompt, agent_name: str):
 
         logger.info("=" * 80)
 
-        if hasattr(msg, "tool_calls") and msg.tool_calls:  # prevent hallucination
-            msg.content = ""
+        # if (
+        #     hasattr(msg, "tool_calls") and msg.tool_calls
+        # ):  # i need to control what is being sent by this so that only important can be passed
+        #     msg.content = ""
 
         agent_message = AIMessage(
             content=final_content,
