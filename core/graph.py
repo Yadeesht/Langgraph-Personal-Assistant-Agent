@@ -19,7 +19,9 @@ from core.agent import (
 from core.llm import build_llm_with_tools, build_llm
 from core.state import State, route_after_supervisor, internal_agent_route, route_start
 from utils.helper import request_counter, setup_logger
-from utils.helper import count_tokens, get_current_time
+from utils.helper import count_tokens, get_current_time, format_tool_to_text
+from utils.memory_manager import log_event
+from config.settings import DEFAULT_THREAD_ID
 
 logger = setup_logger(__name__)
 
@@ -155,6 +157,9 @@ def build_graph(tool_sets, checkpointer):
             logger.info(
                 f"🔎 Supervisor is researching: {len(response.tool_calls)} tool calls"
             )
+            logger.info(
+                f"Tool response: {response.content if response.content else 'No content returned'}"
+            )
             tool_names = []
             for i, tool_call in enumerate(response.tool_calls, 1):
                 logger.info(f"   Tool #{i}:")
@@ -172,27 +177,15 @@ def build_graph(tool_sets, checkpointer):
                 additional_kwargs={"timestamp": current_time},
             )
 
-            # Log supervisor tool usage for audit trail
             try:
-                from utils.memory_manager import log_event
-                from config.settings import DEFAULT_THREAD_ID
-
-                # Filter tool calls to exclude 'id'
-                tool_calls_log = []
-                if hasattr(response, "tool_calls") and response.tool_calls:
-                    for tool_call in response.tool_calls:
-                        tc_copy = tool_call.copy()
-                        tc_copy.pop("id", None)
-                        tool_calls_log.append(tc_copy)
-
                 await log_event(
                     thread_id=DEFAULT_THREAD_ID,
                     actor="supervisor",
-                    message=f"Using tools: {', '.join(tool_names)}",
+                    message=f"{', '.join([format_tool_to_text(tc.get('name', ''), json.dumps(tc.get('args', {}))) for tc in response.tool_calls])}",
                     metadata={
                         "routing_decision": "supervisor_tools",
-                        "tool_calls": tool_calls_log,
                         "request_num": request_num,
+                        "type": "tool_call",
                     },
                 )
             except Exception as e:
@@ -220,16 +213,14 @@ def build_graph(tool_sets, checkpointer):
 
                 # Log supervisor routing decision for audit trail
                 try:
-                    from utils.memory_manager import log_event
-                    from config.settings import DEFAULT_THREAD_ID
-
                     await log_event(
                         thread_id=DEFAULT_THREAD_ID,
-                        actor="supervisor",
+                        actor="supervisor_routing",
                         message=f"Routing to: {step}",
                         metadata={
                             "routing_decision": step,
-                            "request_num": request_num,
+                            "full_content": str(response.content),
+                            "type": "routing",
                         },
                     )
                 except Exception as e:
@@ -270,9 +261,6 @@ def build_graph(tool_sets, checkpointer):
 
             # Log supervisor direct response for audit trail
             try:
-                from utils.memory_manager import log_event
-                from config.settings import DEFAULT_THREAD_ID
-
                 await log_event(
                     thread_id=DEFAULT_THREAD_ID,
                     actor="supervisor_task_response",
@@ -280,7 +268,7 @@ def build_graph(tool_sets, checkpointer):
                     metadata={
                         "routing_decision": "FINISH",
                         "direct_response": True,
-                        "request_num": request_num,
+                        "type": "content",
                     },
                 )
             except Exception as e:

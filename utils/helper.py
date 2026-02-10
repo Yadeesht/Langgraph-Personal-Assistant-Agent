@@ -11,6 +11,7 @@ import asyncio
 import aiosqlite
 import sys
 from pathlib import Path
+import json
 
 root = Path(__file__).parent.parent
 sys.path.insert(0, str(root))
@@ -145,6 +146,16 @@ def delete_thread_from_db(thread_id: str):
 def get_current_time():
     now = datetime.now(pytz.timezone("Asia/Kolkata"))
     return now.strftime("%Y-%m-%d %H:%M:%S IST")
+
+
+def format_tool_to_text(tool_name, tool_args_str):
+    try:
+        args = json.loads(tool_args_str)
+    except:
+        return f"[Action: {tool_name}] (Args: {tool_args_str})"
+
+    arg_summary = ", ".join([f"{k}={v}" for k, v in args.items()])
+    return f"__Tool Action__: Used {tool_name} with inputs: {arg_summary}"
 
 
 if __name__ == "__main__":

@@ -23,7 +23,13 @@ from utils.memory_manager import log_event
 
 from core.state import State
 from utils.memory_manager import sanitize_history
-from utils.helper import request_counter, setup_logger, count_tokens, get_current_time
+from utils.helper import (
+    request_counter,
+    setup_logger,
+    count_tokens,
+    get_current_time,
+    format_tool_to_text,
+)
 from config.prompts import HISTORY_SUMMARIZE_PROMPT
 from core.llm import build_llm
 from core.codeagent import CodeExecutionAgent
@@ -148,23 +154,25 @@ def agent_node_factory(llm_with_tools, system_prompt, agent_name: str):
                 current_agent_name = "Clarification Agent"
 
         try:
-            # Filter tool calls to exclude 'id' but keep everything else
-            tool_calls_log = []
-            if hasattr(msg, "tool_calls") and msg.tool_calls:
-                for tool_call in msg.tool_calls:
-                    tc_copy = tool_call.copy()
-                    tc_copy.pop("id", None)
-                    tool_calls_log.append(tc_copy)
+            if final_content:
+                await log_event(
+                    thread_id=DEFAULT_THREAD_ID,
+                    actor=current_agent_name,
+                    message=final_content,
+                    metadata={
+                        "request_num": request_num,
+                        "type": "content",
+                    },
+                )
 
-            await log_event(
-                thread_id=DEFAULT_THREAD_ID,
-                actor=current_agent_name,
-                message=final_content if final_content else "Tool calls made",
-                metadata={
-                    "tool_calls": tool_calls_log,
-                    "request_num": request_num,
-                },
-            )
+            # Filter tool calls to exclude 'id' but keep everything else
+            if hasattr(msg, "tool_calls") and msg.tool_calls:
+                await log_event(
+                    thread_id=DEFAULT_THREAD_ID,
+                    actor=current_agent_name,
+                    message=f"{', '.join([format_tool_to_text(tc.get('name', ''), json.dumps(tc.get('args', {}))) for tc in msg.tool_calls])}",
+                    metadata={},
+                )
         except Exception as e:
             logger.error(f"Failed to log audit event: {e}")
 
@@ -268,9 +276,19 @@ async def summerizer_node(state: State):
 
     summarized_content = cleaned.content
 
-    delete_actions = [RemoveMessage(id=m.id) for m in messages_to_summerize]
+    delete_actions = []
+    missing_ids_count = 0
+    for m in messages_to_summerize:
+        if m.id:
+            delete_actions.append(RemoveMessage(id=m.id))
+        else:
+            missing_ids_count += 1
 
-    # Log summarization event for audit trail
+    if missing_ids_count > 0:
+        logger.warning(
+            f"⚠️ Found {missing_ids_count} messages without IDs that cannot be removed."
+        )
+
     try:
         await log_event(
             thread_id=DEFAULT_THREAD_ID,
@@ -278,6 +296,7 @@ async def summerizer_node(state: State):
             message=f"summerized content: {summarized_content}",
             metadata={
                 "archived_messages": len(delete_actions),
+                "unremovable_messages": missing_ids_count,
             },
         )
     except Exception as e:

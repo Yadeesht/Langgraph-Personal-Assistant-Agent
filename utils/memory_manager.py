@@ -236,4 +236,4 @@ def analyze_checkpoint_db():
 
 
 if __name__ == "__main__":
-    analyze_checkpoint_db()
+    analyze_human_logs()
