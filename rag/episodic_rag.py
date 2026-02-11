@@ -56,6 +56,82 @@ class EpisodicRAG:
 
         return cleaned_text
 
+    def _split_text_to_chunks(self, text_lines, timestamp, actors):
+        task_uuid = str(uuid.uuid4())
+        generated_chunks = []
+
+        cleaned_lines = []
+        for line in text_lines:
+            clean = self.clean_messages_for_chunk(line)
+            if clean:
+                cleaned_lines.append(clean)
+
+        if not cleaned_lines:
+            return []
+
+        full_text = "\n".join(cleaned_lines)
+        if count_tokens(full_text) <= MAX_CHUNK_TOKENS:
+            return [
+                {
+                    "id": str(uuid.uuid4()),
+                    "content": full_text,
+                    "metadata": {
+                        "timestamp": timestamp,
+                        "task_id": task_uuid,
+                        "part": 1,
+                        "total_parts": 1,
+                        "actors": actors,
+                    },
+                }
+            ]
+
+        current_lines = []
+        current_tokens = 0
+        part = 1
+
+        for line in text_lines:
+            clean_line = self.clean_messages_for_chunk(line)
+            if not clean_line:
+                continue
+
+            line_tokens = count_tokens(clean_line)
+
+            if current_tokens + line_tokens > MAX_CHUNK_TOKENS:
+                generated_chunks.append(
+                    {
+                        "id": str(uuid.uuid4()),
+                        "content": "\n".join(current_lines),
+                        "metadata": {
+                            "timestamp": timestamp,
+                            "task_id": task_uuid,
+                            "part": part,
+                            "actors": actors,
+                        },
+                    }
+                )
+                current_lines = [clean_line]
+                current_tokens = line_tokens
+                part += 1
+            else:
+                current_lines.append(clean_line)
+                current_tokens += line_tokens
+
+        if current_lines:
+            generated_chunks.append(
+                {
+                    "id": str(uuid.uuid4()),
+                    "content": "\n".join(current_lines),
+                    "metadata": {
+                        "timestamp": timestamp,
+                        "task_id": task_uuid,
+                        "part": part,
+                        "actors": actors,
+                    },
+                }
+            )
+
+        return generated_chunks
+
     async def custom_text_splitters(self):
         if not self.past_summery_date:
             logger.warning("Past summary date is not set. No data will be retrieved.")
@@ -220,84 +296,40 @@ class EpisodicRAG:
             final_chunks[i]["metadata"]["prev_id"] = None
             final_chunks[i]["metadata"]["next_id"] = None
 
-            if i > 0:
-                final_chunks[i]["metadata"]["prev_id"] = final_chunks[i - 1]["id"]
-            if i < len(final_chunks) - 1:
-                final_chunks[i]["metadata"]["next_id"] = final_chunks[i + 1]["id"]
-
-        logger.info(
-            f"Chunking Complete. Generated {len(final_chunks)} chunks from {len(episodes)} episodes."
-        )
-        return final_chunks
-
-    def _split_text_to_chunks(self, text_lines, timestamp, actors):
-        task_uuid = str(uuid.uuid4())
-        generated_chunks = []
-
-        current_lines = []
-        current_tokens = 0
-        part = 1
-
-        full_text = "\n".join(text_lines)
-
-        cleaned_total = self.clean_messages_for_chunk(full_text)
-        if not cleaned_total:
-            return []
-
-        if count_tokens(cleaned_total) <= MAX_CHUNK_TOKENS:
-            return [
-                {
-                    "id": str(uuid.uuid4()),
-                    "content": cleaned_total,
-                    "metadata": {
-                        "timestamp": timestamp,
-                        "task_id": task_uuid,
-                        "part": 1,
-                        "total_parts": 1,
-                        "actors": actors,
-                    },
-                }
-            ]
-
-        for line in text_lines:
-            clean_line = self.clean_messages_for_chunk(line)
-            if not clean_line:
+            try:
+                curr_ts = datetime.fromisoformat(
+                    final_chunks[i]["metadata"]["timestamp"]
+                )
+            except (ValueError, TypeError):
                 continue
 
-            line_tokens = count_tokens(clean_line)
+            if i > 0:
+                try:
+                    prev_ts = datetime.fromisoformat(
+                        final_chunks[i - 1]["metadata"]["timestamp"]
+                    )
+                    if (curr_ts - prev_ts).total_seconds() < MAX_TIME_GAP_SECONDS:
+                        final_chunks[i]["metadata"]["prev_id"] = final_chunks[i - 1][
+                            "id"
+                        ]
+                except (ValueError, TypeError):
+                    pass
 
-            if current_tokens + line_tokens > MAX_CHUNK_TOKENS:
-                generated_chunks.append(
-                    {
-                        "id": str(uuid.uuid4()),
-                        "content": "\n".join(current_lines),
-                        "metadata": {
-                            "timestamp": timestamp,
-                            "task_id": task_uuid,
-                            "part": part,
-                            "actors": actors,
-                        },
-                    }
-                )
-                current_lines = [clean_line]
-                current_tokens = line_tokens
-                part += 1
-            else:
-                current_lines.append(clean_line)
-                current_tokens += line_tokens
+            if i < len(final_chunks) - 1:
+                try:
+                    next_ts = datetime.fromisoformat(
+                        final_chunks[i + 1]["metadata"]["timestamp"]
+                    )
+                    if (next_ts - curr_ts).total_seconds() < MAX_TIME_GAP_SECONDS:
+                        final_chunks[i]["metadata"]["next_id"] = final_chunks[i + 1][
+                            "id"
+                        ]
+                except (ValueError, TypeError):
+                    pass
 
-        if current_lines:
-            generated_chunks.append(
-                {
-                    "id": str(uuid.uuid4()),
-                    "content": "\n".join(current_lines),
-                    "metadata": {
-                        "timestamp": timestamp,
-                        "task_id": task_uuid,
-                        "part": part,
-                        "actors": actors,
-                    },
-                }
-            )
+        logger.info(f"Chunking Complete. Generated {len(final_chunks)} linked chunks.")
+        return final_chunks
 
-        return generated_chunks
+    def retrieve_chunks(self):
+
+        pass
