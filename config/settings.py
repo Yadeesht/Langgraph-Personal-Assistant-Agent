@@ -10,6 +10,8 @@ CHECKPOINT_DB = DATA_DIR / "checkpoints.db"
 MEMORY_DB = DATA_DIR / "memory.db"
 VECTOR_DB = DATA_DIR / "embeddings"
 KNOWLEDGE_GRAPH_DB = DATA_DIR / "knowledge_graph_db" / "knowledge_graph.db"
+EPISODIC_RAG_DB = DATA_DIR / "episodic_rag_db"
+
 
 BASE_DIR = Path(__file__).parent.parent
 COMMUNICATION_SERVER = BASE_DIR / "app_mcp" / "core" / "communication_server.py"
@@ -28,6 +30,9 @@ DEFAULT_OPEN_CODE_MODEL = "nvidia/nemotron-3-nano-30b-a3b:free"
 DEFAULT_GROQ_MODEL = "openai/gpt-oss-20b"
 MAX_RETRIES = 3
 REQUEST_TIMEOUT = 30
+
+EMBEDDING_BGE_MODEL_PATH = "D:/Agentic AI/models/bge-small"
+EMBEDDING_GTE_MODEL_PATH = "D:/Agentic AI/models/gte-base"
 
 MAX_TOKENS = 2000
 TOKEN_STRATEGY = "last"

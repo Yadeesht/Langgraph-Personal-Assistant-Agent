@@ -20,7 +20,7 @@ from config.prompts import (
     KNOWLEDGE_GRAPH_EXTRACTION_PROMPT,
     KNOWLEDGE_GRAPH_VALIDATION_PROMPT,
 )
-from config.settings import KNOWLEDGE_GRAPH_DB
+from config.settings import EMBEDDING_BGE_MODEL_PATH, KNOWLEDGE_GRAPH_DB
 from utils.helper import setup_logger
 
 logger = setup_logger(__name__)
@@ -60,7 +60,11 @@ class KnowledgeGraph:
     def model(self):
         if self._model is None:
             try:
-                self._model = SentenceTransformer("D:/Agentic AI/models/bge-small")
+                if not Path(EMBEDDING_BGE_MODEL_PATH).exists():
+                    SentenceTransformer.download_model(
+                        "BAAI/bge-small", EMBEDDING_BGE_MODEL_PATH
+                    )
+                self._model = SentenceTransformer(EMBEDDING_BGE_MODEL_PATH)
 
                 logger.info("SentenceTransformer model loaded successfully.")
             except Exception as e:
@@ -273,9 +277,8 @@ class KnowledgeGraph:
             query_embedding = self._compute_embedding(keywords)
 
             query = """
-                MATCH (n:Entity)
-                WHERE n.embedding IS NOT NULL
-                WITH n, array_cosine_similarity(n.embedding, CAST($query_embedding, 'FLOAT[384]')) AS score
+                CALL QUERY_VECTOR_INDEX('Entity', 'Entity_embedding_idx', CAST($query_embedding, 'FLOAT[384]'), $top_k)
+                WITH node AS n, score
                 WHERE score > 0.5
                 RETURN 
                     n.id AS id, 
@@ -315,9 +318,8 @@ class KnowledgeGraph:
 
         query = """
         /* 1. Get Hop 0 (Seeds) */
-        MATCH (n:Entity)
-        WHERE n.embedding IS NOT NULL
-        WITH n, array_cosine_similarity(n.embedding, CAST($query_embedding, 'FLOAT[384]')) AS seed_score
+        CALL QUERY_VECTOR_INDEX('Entity', 'Entity_embedding_idx', CAST($query_embedding, 'FLOAT[384]'), $top_k)
+        WITH node AS n, score AS seed_score
         WHERE seed_score > 0.65
         RETURN 
             n.id AS id, 
@@ -332,9 +334,11 @@ class KnowledgeGraph:
         UNION ALL
 
         /* 2. Get Hop 1 (High-Confidence Neighbors) */
-        MATCH (n:Entity)-[r]-(neighbor)
-        WHERE n.embedding IS NOT NULL AND neighbor.embedding IS NOT NULL
-        WITH n, r, neighbor, array_cosine_similarity(n.embedding, CAST($query_embedding, 'FLOAT[384]')) AS score, array_cosine_similarity(neighbor.embedding, CAST($query_embedding, 'FLOAT[384]')) AS score2
+        CALL QUERY_VECTOR_INDEX('Entity', 'Entity_embedding_idx', CAST($query_embedding, 'FLOAT[384]'), $top_k)
+        WITH node AS n, score
+        MATCH (n)-[r]-(neighbor)
+        WHERE neighbor.embedding IS NOT NULL
+        WITH n, r, neighbor, score, array_cosine_similarity(neighbor.embedding, CAST($query_embedding, 'FLOAT[384]')) AS score2
         WITH n,r,neighbor, CAST((0.9*score + 0.1*score2),'FLOAT') AS weighted_score
         WHERE weighted_score > 0.5
         RETURN 
@@ -375,9 +379,8 @@ class KnowledgeGraph:
                 query_embedding = self._compute_embedding(text)
 
                 query = """
-                MATCH (n:Entity)
-                WHERE n.embedding IS NOT NULL 
-                WITH n, array_cosine_similarity(n.embedding, CAST($query_embedding, 'FLOAT[384]')) AS score
+                CALL QUERY_VECTOR_INDEX('Entity', 'Entity_embedding_idx', CAST($query_embedding, 'FLOAT[384]'), 10)
+                WITH node AS n, score
                 WHERE score > 0.6
                 OPTIONAL MATCH (n)-[r:RELATED_TO]-(m:Entity)
                 WITH n, score, collect(r.relation_type + ' with ' + m.id) AS connections
