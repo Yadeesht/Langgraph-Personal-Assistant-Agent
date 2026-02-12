@@ -4,6 +4,8 @@ from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
 from utils.helper import setup_logger, count_tokens
 import time
+import aiosqlite
+from datetime import datetime
 
 from config.settings import DEFAULT_THREAD_ID, MEMORY_DB
 
@@ -73,6 +75,15 @@ async def route_start(state: State) -> str:
 
     last_memory_ts = state.get("last_memory_timestamp")
 
+    if isinstance(last_memory_ts, float):
+        query_ts = datetime.fromtimestamp(last_memory_ts).isoformat()
+
+    elif isinstance(last_memory_ts, datetime):
+        query_ts = last_memory_ts.isoformat()
+
+    else:
+        query_ts = str(last_memory_ts)
+
     should_update_memory = False
 
     if last_memory_ts is None:
@@ -88,7 +99,19 @@ async def route_start(state: State) -> str:
 
         if current_day_ist > memory_day_ist:
             logger.info("📅 New Day Detected: Triggering memory optimization.")
-            should_update_memory = True
+            query = """
+            SELECT timestamp, actor, message
+            FROM human_logs 
+            WHERE timestamp > ? 
+            AND actor != 'supervisor_routing' 
+            AND actor != 'summerizer_node'
+            """
+            async with aiosqlite.connect(MEMORY_DB) as db:
+                async with db.execute(query, (query_ts,)) as cursor:
+                    rows = await cursor.fetchall()
+                    logger.info(f"Processing {len(rows)} raw logs...")
+            if len(rows) < 15:
+                should_update_memory = True
 
     if should_update_memory:
         return "memory_update_node"

@@ -14,7 +14,6 @@ import sys
 from pathlib import Path
 import time
 
-import rag
 from rag.episodic_rag import EpisodicRAG
 
 root = Path(__file__).parent.parent
@@ -216,6 +215,33 @@ def code_execution_factory(llm, tool_sets, agent_name: str):
                 asyncio.set_event_loop(loop)
 
             msg = loop.run_until_complete(agent.execute_workflow(last_messages))
+            try:
+                generated_code = msg.get("generated_code", "")
+                task_goal = msg.get("task_goal", "Unknown Goal")
+
+                if generated_code:
+                    await log_event(
+                        thread_id=DEFAULT_THREAD_ID,
+                        actor="code_agent",
+                        message=f"PLAN: {task_goal}\n\nEXECUTED CODE:\n```python\n{generated_code}\n```",
+                        metadata={
+                            "type": "code_execution",
+                            "request_num": request_counter["count"],
+                        },
+                    )
+
+                execution_summary = msg.get("summary", "No summary provided")
+                execution_details = json.dumps(msg.get("details", {}), indent=2)
+
+                await log_event(
+                    thread_id=DEFAULT_THREAD_ID,
+                    actor="code_agent",
+                    message=f"EXECUTION RESULT:\nStatus: {msg.get('status')}\nSummary: {execution_summary}\nDetails: {execution_details}",
+                    metadata={"type": "code_output", "status": msg.get("status")},
+                )
+
+            except Exception as log_error:
+                logger.error(f"Failed to log code execution event: {log_error}")
 
         except Exception as e:
             logger.error(f"Code execution error: {e}")
@@ -305,7 +331,7 @@ def memory_node_factory():
         )
 
         await updation_episodic_rag(
-            past_summary_date=updates["last_summary_timestamp"], db_path=MEMORY_DB
+            past_summary_date=state.get("last_memory_timestamp", 0.0), db_path=MEMORY_DB
         )
 
         updates["last_memory_timestamp"] = now_float
@@ -314,13 +340,32 @@ def memory_node_factory():
     return memory_node
 
 
-async def updation_episodic_rag(past_summery_date=None, db_path=MEMORY_DB):
+async def updation_episodic_rag(past_summary_date=None, db_path=MEMORY_DB):
     try:
         logger.info("🔄 Starting episodic RAG update process.")
+
+        if past_summary_date is None:
+            past_summary_date = 0.0
+            logger.info("No previous timestamp found, using 0.0 (all logs)")
+
+        if isinstance(past_summary_date, float):
+            past_summary_date_iso = datetime.fromtimestamp(
+                past_summary_date
+            ).isoformat()
+        elif isinstance(past_summary_date, datetime):
+            past_summary_date_iso = past_summary_date.isoformat()
+        else:
+            past_summary_date_iso = str(past_summary_date)
+
+        logger.info(f"Fetching logs after: {past_summary_date_iso}")
+
         rag = EpisodicRAG(db_path=db_path)
-        chunks = await rag.custom_text_splitters(past_summery_date=past_summery_date)
+        chunks = await rag.custom_text_splitters(past_summary_date=past_summary_date)
+
         if not chunks:
+            logger.info("No chunks generated - no new data to index.")
             return
+
         rag.index_creation(chunks)
         logger.info("✅ Episodic RAG update process completed successfully.")
     except Exception as e:
@@ -336,8 +381,12 @@ async def updation_knowledge_graph(
         logger.info("🔄 Starting knowledge graph update process.")
         last_update = state.get("last_knowledgegraph_timestamp", 0.0)
 
-        if isinstance(last_update, (int, float)):
+        if isinstance(last_update, float):
             last_update_str = datetime.fromtimestamp(last_update).isoformat()
+
+        elif isinstance(last_update, datetime):
+            last_update_str = last_update.isoformat()
+
         else:
             last_update_str = str(last_update)
 

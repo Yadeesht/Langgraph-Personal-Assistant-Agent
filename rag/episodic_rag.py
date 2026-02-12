@@ -211,7 +211,10 @@ class EpisodicRAG:
                 )
                 return []
             else:
-                past_summary_date = past_summary_date.isoformat()
+                past_summary_date = datetime.fromtimestamp(
+                    past_summary_date
+                ).isoformat()
+                logger.info(f"Last summary date set to: {past_summary_date}")
 
             query = """
                 SELECT timestamp, actor, message
@@ -227,10 +230,8 @@ class EpisodicRAG:
                     rows = await cursor.fetchall()
                     logger.info(f"Processing {len(rows)} raw logs...")
 
-            if len(rows) < 5:
-                logger.warning(
-                    "Not enough new logs to process since the last summary date."
-                )
+            if len(rows) == 0:
+                logger.info("No new logs to process since the last summary.")
                 return []
 
             episodes = []
@@ -481,12 +482,17 @@ class EpisodicRAG:
             client = QdrantClient(path=EPISODIC_RAG_DB)
 
             must = []
-            if conditions.get("actor"):
+            if conditions.get("actors"):
+                actor_list = conditions["actors"]
+                if isinstance(actor_list, str):
+                    actor_list = [actor_list]
+
                 must.append(
                     models.FieldCondition(
-                        key="actors", match=models.MatchValue(value=conditions["actor"])
+                        key="actors", match=models.MatchAny(any=actor_list)
                     )
                 )
+
             if conditions.get("start_time") and conditions.get("end_time"):
                 must.append(
                     models.FieldCondition(

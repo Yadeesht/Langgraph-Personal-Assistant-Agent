@@ -161,16 +161,24 @@ async def add_information_to_knowledge_graph(details: str):
 @supervisor_server.tool()
 async def retrieve_relevant_chunks(query: str, top_k: int = 5, conditions: dict = None):
     """
-    Retrieve relevant information chunks from the Episodic RAG system based on a query.
+    Search conversation history using Episodic RAG to retrieve past interactions, decisions, and contextual information.
+
+    Use this to recall what was discussed in previous conversations, find code snippets mentioned earlier,
+    retrieve decisions made, or locate any temporal/contextual information from past interactions.
 
     Args:
-        query: The search string or question used to find relevant chunks.
-        top_k: The number of top relevant chunks to retrieve.
-        conditions: Optional dictionary of additional conditions or filters to apply during retrieval.
+        query: Descriptive search query (e.g., "bug fix discussion", "API project status", "email content about deadline")
+        top_k: Number of relevant conversation chunks to retrieve (default: 5)
+        conditions: Optional filters with keys:
+            - actors: List of agent names to filter by (e.g., ["code_agent", "supervisor", "communication_agent"])
+            - start_time: ISO timestamp string for earliest conversation time (e.g., "2026-02-12T00:00:00")
+            - end_time: ISO timestamp string for latest conversation time (e.g., "2026-02-13T23:59:59")
+
+    Example: retrieve_relevant_chunks("Python script debugging", 5, {"actors": ["code_agent"], "start_time": None, "end_time": None})
     """
     try:
         rag = get_rag_instance()
-        results = await asyncio.to_thread(rag.retrieve_chunks, query, top_k, conditions)
+        results = await asyncio.to_thread(rag.retrieve_chunks, query, conditions, top_k)
         return results
     except Exception as e:
         logger.error(f"Error retrieving relevant chunks: {e}")

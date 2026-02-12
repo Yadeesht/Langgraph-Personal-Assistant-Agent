@@ -30,7 +30,12 @@ class CodeExecutionAgent:
 
         generated_code = await self._generate_code(code_prompt)
 
-        return await self._execute_locally(generated_code, tool_map)
+        result = await self._execute_in_sandbox(generated_code, tool_map)
+
+        result["generated_code"] = generated_code
+        result["task_goal"] = task_spec.primary_goal
+
+        return result
 
     def _create_tool_map(self, required_hints: List[str]) -> Dict[str, Callable]:
         tool_map = {}
