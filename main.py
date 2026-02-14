@@ -13,9 +13,10 @@ from config.settings import (
     supervisor_config,
 )
 
+from core.voice_inference import VoiceInference
 from core.graph import build_graph
 from utils.memory_manager import log_event
-from utils.helper import AsyncSqliteSaver
+from utils.helper import AsyncSqliteSaver, clean_text_for_tts
 from utils.helper import request_counter, setup_logger
 
 logger = setup_logger(__name__)
@@ -64,8 +65,16 @@ async def main():
 
             config = {"configurable": {"thread_id": DEFAULT_THREAD_ID}}
 
+            voice = VoiceInference()
+
             while True:
-                user_query = input("You: ").strip()
+                mode = input("Press Enter to type, or 'v' to speak: ")
+                is_voice_mode = False
+                if mode.lower() == "v":
+                    user_query = voice.listen().strip()
+                    is_voice_mode = True
+                else:
+                    user_query = input("User: ").strip()
 
                 if user_query.lower() in ["exit", "quit", "bye"]:
                     logger.info("👋 User ended conversation")
@@ -98,6 +107,19 @@ async def main():
                     },
                     config=config,
                 )
+
+                last_message = state["messages"][-1]
+
+                logger.info(f"last message: {last_message} type: {type(last_message)}")
+
+                if last_message.type == "ai" and last_message.content:
+                    final_response = last_message.content
+
+                    print(f"\n🤖 Assitant: {final_response}\n")
+
+                    if is_voice_mode:
+                        clean_response = clean_text_for_tts(final_response)
+                        voice.speak(clean_response)
 
             logger.info("=" * 80)
             logger.info("🎯 EXECUTION SUMMARY")

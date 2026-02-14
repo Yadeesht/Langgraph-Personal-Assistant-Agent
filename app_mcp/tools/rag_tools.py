@@ -179,6 +179,7 @@ async def retrieve_relevant_chunks(query: str, top_k: int = 5, conditions: dict 
     try:
         rag = get_rag_instance()
         results = await asyncio.to_thread(rag.retrieve_chunks, query, conditions, top_k)
+
         return results
     except Exception as e:
         logger.error(f"Error retrieving relevant chunks: {e}")
