@@ -64,12 +64,14 @@ def build_graph(tool_sets, checkpointer):
         system_prompt=SUPERVISOR_SYSTEM_PROMPT,
         agent_name="supervisor",
     ):
-        request_counter["count"] += 1
-        request_num = request_counter["count"]
+        request_counter["supervisor"] += 1
+        request_num = request_counter["supervisor"]
 
         current_time = get_current_time()
 
-        logger.info("\n")
+        logger.info(
+            "\n"
+        )  # need to change like for particular query how many times called are used
         logger.info("=" * 80)
         logger.info(f"👮 SUPERVISOR REQUEST #{request_num}")
         logger.info("=" * 80)
@@ -85,11 +87,6 @@ def build_graph(tool_sets, checkpointer):
             start_on="human",
         )
 
-        # if last_messages:
-        #     preview = str(last_messages[-3:])
-        #     logger.info(f"📝 Latest Input: {preview}")
-        # logger.info("=" * 80)
-
         try:
             summary = state.get("summary", None)
             if summary:
@@ -99,9 +96,7 @@ def build_graph(tool_sets, checkpointer):
                 last_messages = [summary_msg] + last_messages
 
             message = [SystemMessage(content=SUPERVISOR_SYSTEM_PROMPT)] + last_messages
-            logger.info(
-                f"🤖 Sending messages to LLM with {count_tokens(message)} tokens"
-            )
+
             response = await supervisor_llm.ainvoke(message)
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 429:
@@ -252,7 +247,6 @@ def build_graph(tool_sets, checkpointer):
                 if len(response.content) > 100000
                 else response.content
             )
-            logger.info(f"📄 Response content: {content_preview}")
             agent_message = AIMessage(
                 content=response.content,
                 name="supervisor",

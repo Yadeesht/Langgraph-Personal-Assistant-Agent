@@ -128,7 +128,7 @@ def setup_logger(name: str = __name__) -> logging.Logger:
     return logging.getLogger(name)
 
 
-request_counter = {"count": 0}
+request_counter = {"supervisor": 0, "sub_agents": 0}
 
 
 def delete_thread_from_db(thread_id: str):
@@ -160,21 +160,28 @@ def format_tool_to_text(tool_name, tool_args_str):
 
 def clean_text_for_tts(text):
     # 1. Remove code blocks (content between triple backticks)
-    text = re.sub(r'```.*?```', ' ', text, flags=re.DOTALL)
-    
+    text = re.sub(r"```.*?```", " ", text, flags=re.DOTALL)
+
     # 2. Remove inline code (content between single backticks)
-    text = re.sub(r'`.*?`', ' ', text)
-    
+    text = re.sub(r"`.*?`", " ", text)
+
     # 3. Remove Markdown formatting (*, **, #, >, etc.)
-    text = re.sub(r'[\*\#_>~\-]{2,}', '', text) # Remove multi-char markers like **, ##, --
-    text = re.sub(r'(?<!\w)\*|\*(?!\w)', '', text) # Remove single * if it's not part of a math equation
-    
+    text = re.sub(
+        r"[\*\#_>~\-]{2,}", "", text
+    )  # Remove multi-char markers like **, ##, --
+    text = re.sub(
+        r"(?<!\w)\*|\*(?!\w)", "", text
+    )  # Remove single * if it's not part of a math equation
+
     # 4. Remove Links [Text](URL) -> Text
-    text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
-    
+    text = re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", text)
+
     # 5. Clean up extra whitespace created by removals
-    text = re.sub(r'\s+', ' ', text).strip()
-    
+    text = re.sub(r"\s+", " ", text).strip()
+
+    if text.strip() == "You":
+        return ""
+
     return text
 
 

@@ -25,7 +25,7 @@ from utils.memory_manager import log_event
 
 logger = setup_logger(__name__)
 
-SESSION_TIMEOUT = 100
+SESSION_TIMEOUT = 600
 WAKE_WORD = "hey_jarvis"
 
 
@@ -50,10 +50,10 @@ async def voice_listener(queue, voice_agent, loop, agent_state):
             is_session_active = time_since < SESSION_TIMEOUT
 
             if not is_session_active:
-                print("🎙️  Listening for wake word...", end="\r", flush=True)
+                print("type or say the jarvis", end="\r", flush=True)
                 text = await loop.run_in_executor(None, voice_agent.wait_for_wake_word)
             else:
-                print("🎤 Recording your message...", end="\r", flush=True)
+                print("type or say what you need", end="\r", flush=True)
                 text = await loop.run_in_executor(None, voice_agent.listen)
 
             print(" " * 50, end="\r", flush=True)
@@ -69,7 +69,6 @@ async def voice_listener(queue, voice_agent, loop, agent_state):
 async def main():
     start_time = datetime.now()
     logger.info("🚀 Starting Agent")
-    logger.info("=" * 80)
 
     try:
         communication_client = MultiServerMCPClient(communication_config)
@@ -109,7 +108,6 @@ async def main():
 
             config = {"configurable": {"thread_id": DEFAULT_THREAD_ID}}
 
-            print("\n🔧 Initializing voice models...")
             voice = VoiceInference()
 
             agent_state = {"last_interaction": 0}
@@ -121,12 +119,8 @@ async def main():
             asyncio.create_task(keyword_listener(event_queue, loop, agent_state))
             asyncio.create_task(voice_listener(event_queue, voice, loop, agent_state))
 
-            print("\n" + "=" * 50)
-            print("✅ SYSTEM READY")
-            print("=" * 50)
-            print(f"🎤 Say '{WAKE_WORD}' or type your message")
-            print("💡 Type 'exit' or 'quit' to stop\n")
-            logger.info("Listeners started, entering main processing loop...")
+            logger.info(f"🎤 Say '{WAKE_WORD}' or type your message")
+            logger.info("💡 Type 'exit' or 'quit' to stop\n")
 
             while True:
                 source, query = await event_queue.get()
@@ -134,15 +128,14 @@ async def main():
                 agent_state["last_interaction"] = time.time()
 
                 if query.lower() in ["exit", "quit"]:
-                    print("\n" + "=" * 50)
-                    print("👋 Goodbye!")
-                    print("=" * 50)
+                    logger.info("=" * 80)
+                    logger.info("👋 Goodbye!")
+                    logger.info("=" * 80)
                     break
 
-                # Clean display for user input
-                print(f"\n{'─' * 50}")
-                print(f"👤 You: {query}")
-                print(f"{'─' * 50}\n")
+                logger.info("=" * 80)
+                logger.info(f"👤 You: {query}")
+                logger.info("=" * 80)
 
                 try:
                     await log_event(
@@ -176,14 +169,12 @@ async def main():
             logger.info("🎯 EXECUTION SUMMARY")
             logger.info("=" * 80)
             logger.info("✅ Status: Success")
-            logger.info(f"📊 Total LLM requests: {request_counter['count']}")
+            logger.info(
+                f"📊 Total LLM requests: {request_counter['supervisor'] + request_counter['sub_agents']}"
+            )
             logger.info(f"💬 Total messages in conversation: {len(state['messages'])}")
 
             logger.info("📝 Conversation flow:")
-            for i, msg in enumerate(state["messages"], 1):
-                msg_type = msg.__class__.__name__
-                logger.info(f"   {i}. {msg_type}")
-
             end_time = datetime.now()
             execution_time = (end_time - start_time).total_seconds()
             logger.info(f"⏱️  Execution time: {execution_time:.2f} seconds")

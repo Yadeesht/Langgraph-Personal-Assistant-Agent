@@ -44,8 +44,8 @@ def agent_node_factory(llm_with_tools, system_prompt, agent_name: str):
     async def agent_node(state: State):
 
         current_agent_name = agent_name
-        request_counter["count"] += 1
-        request_num = request_counter["count"]
+        request_counter["sub_agents"] += 1
+        request_num = request_counter["sub_agents"]
 
         current_time = get_current_time()
 
@@ -68,7 +68,7 @@ def agent_node_factory(llm_with_tools, system_prompt, agent_name: str):
         logger.info("=" * 80)
         if last_messages:  # this is for logs purpose only
             content_preview = sanitize_history(last_messages)
-            content_preview = json.dumps(content_preview[-10:], indent=2)
+            content_preview = json.dumps(content_preview[-2:], indent=2)
             logger.info(f"📝 Content preview: {content_preview}")
 
         logger.info("=" * 80)
@@ -129,8 +129,6 @@ def agent_node_factory(llm_with_tools, system_prompt, agent_name: str):
                     f"      Args: {json.dumps(tool_call.get('args', {}), indent=10)}"
                 )
                 logger.info(f"      ID: {tool_call.get('id', 'N/A')}")
-        else:
-            logger.info("💭 No tool calls - Direct response")
 
         if hasattr(msg, "content") and msg.content and not msg.tool_calls:
             content_preview = (
@@ -138,7 +136,6 @@ def agent_node_factory(llm_with_tools, system_prompt, agent_name: str):
                 if len(msg.content) > 1000000
                 else msg.content
             )
-            logger.info(f"📄 Response content: {content_preview}")
 
         logger.info("=" * 80)
 
@@ -152,7 +149,6 @@ def agent_node_factory(llm_with_tools, system_prompt, agent_name: str):
             if ("CLARIFICATION NEEDED:" in agent_message.content.upper()) or (
                 "TALK TO USER:" in agent_message.content.upper()
             ):
-                logger.info("❓ Clarification needed - routing to human")
                 current_agent_name = "Clarification Agent"
 
         try:
@@ -167,7 +163,6 @@ def agent_node_factory(llm_with_tools, system_prompt, agent_name: str):
                     },
                 )
 
-            # Filter tool calls to exclude 'id' but keep everything else
             if hasattr(msg, "tool_calls") and msg.tool_calls:
                 await log_event(
                     thread_id=DEFAULT_THREAD_ID,
@@ -226,7 +221,6 @@ def code_execution_factory(llm, tool_sets, agent_name: str):
                         message=f"PLAN: {task_goal}\n\nEXECUTED CODE:\n```python\n{generated_code}\n```",
                         metadata={
                             "type": "code_execution",
-                            "request_num": request_counter["count"],
                         },
                     )
 
