@@ -34,7 +34,6 @@ WAKE_WORD = "hey_jarvis"
 async def keyword_listener(queue, loop, agent_state):
     while True:
         try:
-            logger.info("type or speak with jarvis")
             user_input = await loop.run_in_executor(None, input)
             if user_input.strip():
                 agent_state["last_interaction"] = time.time()
@@ -53,15 +52,9 @@ async def voice_listener(queue, voice_agent, loop, agent_state):
             is_session_active = time_since < SESSION_TIMEOUT
 
             if not is_session_active:
-                logger.info("type or speak with jarvis")
                 text = await loop.run_in_executor(None, voice_agent.wait_for_wake_word)
             else:
-                logger.info(
-                    "type or speak with agent"
-                )  # just to identify the session status
                 text = await loop.run_in_executor(None, voice_agent.listen)
-
-            logger.info("=" * 50)
 
             if text.strip():
                 agent_state["last_interaction"] = time.time()
@@ -141,15 +134,11 @@ async def main():
 
                 agent_state["last_interaction"] = time.time()
 
-                if query.lower() in ["exit", "quit"]:
-                    logger.info("=" * 80)
+                if query.lower() in ["exit", "quit", "bye"]:
                     logger.info("👋 Goodbye!")
-                    logger.info("=" * 80)
                     break
 
-                logger.info("=" * 80)
                 logger.info(f"👤 You: {query}")
-                logger.info("=" * 80)
 
                 try:
                     await log_event(
@@ -169,9 +158,7 @@ async def main():
                 last_msg = state["messages"][-1]
                 if last_msg.type == "ai" and last_msg.content:
                     final_response = last_msg.content
-                    logger.info("=" * 80)
                     logger.info(f"🤖 Agent: {final_response}")
-                    logger.info("=" * 80)
 
                     if VOICE_OUTPUT_STATUS and voice:
                         clean_resp = clean_text_for_tts(final_response)
@@ -180,23 +167,14 @@ async def main():
 
                     agent_state["last_interaction"] = time.time()
 
-            logger.info("=" * 80)
-            logger.info("🎯 EXECUTION SUMMARY")
-            logger.info("=" * 80)
-            logger.info("✅ Status: Success")
-            logger.info(
-                f"📊 Total LLM requests: {request_counter['supervisor'] + request_counter['sub_agents']}"
-            )
-            logger.info(f"💬 Total messages in conversation: {len(state['messages'])}")
-
-            logger.info("📝 Conversation flow:")
             end_time = datetime.now()
             execution_time = (end_time - start_time).total_seconds()
-            logger.info(f"⏱️  Execution time: {execution_time:.2f} seconds")
-            logger.info("=" * 80)
-
-            logger.info("=" * 80)
-            logger.info("✅ Multi-Server Agent execution completed")
+            logger.info(
+                f"🎯 Session complete | "
+                f"LLM requests: {request_counter['supervisor'] + request_counter['sub_agents']} | "
+                f"Messages: {len(state['messages'])} | "
+                f"Time: {execution_time:.2f}s"
+            )
 
     except Exception as e:
         logger.exception(f"❌ An error occurred: {e}")

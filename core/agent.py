@@ -338,20 +338,23 @@ async def updation_episodic_rag(past_summary_date=None, db_path=MEMORY_DB):
     try:
         logger.info("🔄 Starting episodic RAG update process.")
 
-        if past_summary_date is None:
-            past_summary_date = 0.0
-            logger.info("No previous timestamp found, using 0.0 (all logs)")
+        if past_summary_date is None or past_summary_date == 0.0:
+            past_summary_date = None
+            logger.info("No previous timestamp found, fetching all available logs")
 
-        if isinstance(past_summary_date, float):
-            past_summary_date_iso = datetime.fromtimestamp(
-                past_summary_date
-            ).isoformat()
-        elif isinstance(past_summary_date, datetime):
-            past_summary_date_iso = past_summary_date.isoformat()
+        if past_summary_date is not None:
+            if isinstance(past_summary_date, float):
+                past_summary_date_iso = datetime.fromtimestamp(
+                    past_summary_date
+                ).isoformat()
+            elif isinstance(past_summary_date, datetime):
+                past_summary_date_iso = past_summary_date.isoformat()
+            else:
+                past_summary_date_iso = str(past_summary_date)
+
+            logger.info(f"Fetching logs after: {past_summary_date_iso}")
         else:
-            past_summary_date_iso = str(past_summary_date)
-
-        logger.info(f"Fetching logs after: {past_summary_date_iso}")
+            logger.info("Fetching ALL logs from database")
 
         rag = EpisodicRAG(db_path=db_path)
         chunks = await rag.custom_text_splitters(past_summary_date=past_summary_date)

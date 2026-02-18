@@ -9,6 +9,7 @@ from config.prompts import (
     PLANNING_SYSTEM_PROMPT,
     SUPERVISOR_SYSTEM_PROMPT,
     CONTENT_SYSTEM_PROMPT,
+    VOICE_INTERACTION_PROMPT,
 )
 from core.agent import (
     agent_node_factory,
@@ -69,15 +70,9 @@ def build_graph(tool_sets, checkpointer):
 
         current_time = get_current_time()
 
-        logger.info(
-            "\n"
-        )  # need to change like for particular query how many times called are used
-        logger.info("=" * 80)
         logger.info(f"👮 SUPERVISOR REQUEST #{request_num}")
-        logger.info("=" * 80)
 
         logger.info(f"📨 Messages in context: {len(state['messages'])}")
-        logger.info(f"📝 Next value: {state.get('next', 'N/A')}")
 
         last_messages = trim_messages(  # fallback if summerizer fails
             state["messages"],
@@ -96,18 +91,15 @@ def build_graph(tool_sets, checkpointer):
                 )
                 last_messages = [summary_msg] + last_messages
 
-            message = [SystemMessage(content=system_prompt)] + last_messages
+            is_voice = state.get("configurable", {}).get("is_voice", False)
+            final_prompt = system_prompt
+            if is_voice:
+                final_prompt += VOICE_INTERACTION_PROMPT
+                logger.info("voice prompt added")
+
+            message = [SystemMessage(content=final_prompt)] + last_messages
 
             response = await llm_with_tools.ainvoke(message)
-
-            # Log what the supervisor returned
-            logger.info(f"🔍 Response type: {type(response)}")
-            logger.info(f"🔍 Has tool_calls: {bool(response.tool_calls)}")
-            logger.info(
-                f"🔍 Content length: {len(response.content) if response.content else 0}"
-            )
-            if response.content:
-                logger.info(f"🔍 Content preview: {response.content[:200]}...")
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 429:
                 logger.error("🚫 Rate limit hit in supervisor - stopping")
@@ -249,9 +241,7 @@ def build_graph(tool_sets, checkpointer):
         # CASE C: The Supervisor decided to answer the user directly
         # (This includes markdown tables, formatted text, etc.)
         if response.content and not response.tool_calls:
-            logger.info(
-                f"💬 Direct response from supervisor ({len(response.content)} chars)"
-            )
+            logger.info("💬 Direct response from supervisor")
 
             agent_message = AIMessage(
                 content=response.content,

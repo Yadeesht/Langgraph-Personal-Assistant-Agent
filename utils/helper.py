@@ -159,26 +159,47 @@ def format_tool_to_text(tool_name, tool_args_str):
 
 
 def clean_text_for_tts(text):
-    # 1. Remove code blocks (content between triple backticks)
-    text = re.sub(r"```.*?```", " ", text, flags=re.DOTALL)
+    if not text:
+        return ""
 
-    # 2. Remove inline code (content between single backticks)
-    text = re.sub(r"`.*?`", " ", text)
-
-    # 3. Remove Markdown formatting (*, **, #, >, etc.)
+    # 1. Code Blocks: Don't just remove them, ACKNOWLEDGE them.
+    # Replaces ```...``` with "I have provided the code below."
     text = re.sub(
-        r"[\*\#_>~\-]{2,}", "", text
-    )  # Remove multi-char markers like **, ##, --
-    text = re.sub(
-        r"(?<!\w)\*|\*(?!\w)", "", text
-    )  # Remove single * if it's not part of a math equation
+        r"```.*?```",
+        ". I have generated the code/data for you. ",
+        text,
+        flags=re.DOTALL,
+    )
 
-    # 4. Remove Links [Text](URL) -> Text
+    # 2. Inline Code: Remove backticks but KEEP the text (usually important variable names)
+    # `print()` -> print()
+    text = re.sub(r"`(.*?)`", r" \1 ", text)
+
+    # 3. Headers: Remove Markdown headers (#) but keep text
+    text = re.sub(r"#+\s", " ", text)
+
+    # 4. Bullet Points: The "List Reader"
+    # Converts "- Item" or "* Item" into ". Item"
+    # The period forces the TTS to take a breath between items.
+    text = re.sub(r"^\s*[-*]\s+", ". ", text, flags=re.MULTILINE)
+
+    # 5. The "Minus" Fix:
+    # Replaces " - " (spaced hyphen) with ", " (comma)
+    # Prevents: "Quiz - Feb 26" -> "Quiz minus Feb 26"
+    # Becomes: "Quiz, Feb 26"
+    text = re.sub(r"\s-\s", ", ", text)
+
+    # 6. Remove Markdown formatting (**bold**, __italics__)
+    text = re.sub(r"[\*\#_>~\-]{2,}", "", text)  # Remove **, ##, --
+    text = re.sub(r"(?<!\w)\*|\*(?!\w)", "", text)  # Remove single *
+
+    # 7. Remove Links [Text](URL) -> Text
     text = re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", text)
 
-    # 5. Clean up extra whitespace created by removals
+    # 8. Clean up extra whitespace
     text = re.sub(r"\s+", " ", text).strip()
 
+    # 9. Ignore "You" (Start of user turn label)
     if text.strip() == "You":
         return ""
 
