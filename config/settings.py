@@ -42,6 +42,8 @@ DEFAULT_THREAD_ID = os.getenv("DEFAULT_THREAD_ID", "default_thread")
 WAKE_WORD = "hey_jarvis"
 WW_THRESHOLD = 0.7
 SILENCE_THRESHOLD = 0.03
+VOICE_INPUT_STATUS = False
+VOICE_OUTPUT_STATUS = False
 
 communication_config = {
     "communication": {

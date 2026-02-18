@@ -25,7 +25,7 @@ logger = setup_logger(__name__)
 class VoiceInference:
     def __init__(
         self,
-        tts_model_path="./models/tts/en_GB-cori-high.onnx",
+        tts_model_path="./models/tts/jarvis-high.onnx",
         stt_model_path="./models/stt",
     ):
 
@@ -85,6 +85,7 @@ class VoiceInference:
                 chunk_int16 = np.frombuffer(audio_queue.get(), dtype=np.int16)
 
                 prediction = self.wake_model.predict(chunk_int16)
+                logger.debug(f"Wake word prediction: {prediction}")
 
                 if prediction[WAKE_WORD] > WW_THRESHOLD:
                     self.last_ww_call = datetime.now()
@@ -133,7 +134,6 @@ class VoiceInference:
                 chunk_float = chunk.astype(np.float32) / 32768.0
                 rms = np.sqrt(np.mean(chunk_float**2))
 
-                logger.info(f"User speech Detected (RMS: {rms:.4f})")
                 if rms > SILENCE_THRESHOLD:
                     if not is_user_speaking:
                         command_audio.append(
@@ -186,7 +186,9 @@ class VoiceInference:
         )
         stream.start()
 
-        for audio_chunk in self.tts_voice.synthesize(text):
+        for audio_chunk in self.tts_voice.synthesize(
+            text,
+        ):
             if self.stop_speaking_event.is_set():
                 break
             stream.write(audio_chunk.audio_int16_array)

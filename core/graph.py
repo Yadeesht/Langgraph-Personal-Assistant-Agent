@@ -64,8 +64,8 @@ def build_graph(tool_sets, checkpointer):
         system_prompt=SUPERVISOR_SYSTEM_PROMPT,
         agent_name="supervisor",
     ):
-        request_counter["supervisor"] += 1
-        request_num = request_counter["supervisor"]
+        request_counter[agent_name] += 1
+        request_num = request_counter[agent_name]
 
         current_time = get_current_time()
 
@@ -77,6 +77,7 @@ def build_graph(tool_sets, checkpointer):
         logger.info("=" * 80)
 
         logger.info(f"📨 Messages in context: {len(state['messages'])}")
+        logger.info(f"📝 Next value: {state.get('next', 'N/A')}")
 
         last_messages = trim_messages(  # fallback if summerizer fails
             state["messages"],
@@ -95,9 +96,18 @@ def build_graph(tool_sets, checkpointer):
                 )
                 last_messages = [summary_msg] + last_messages
 
-            message = [SystemMessage(content=SUPERVISOR_SYSTEM_PROMPT)] + last_messages
+            message = [SystemMessage(content=system_prompt)] + last_messages
 
-            response = await supervisor_llm.ainvoke(message)
+            response = await llm_with_tools.ainvoke(message)
+
+            # Log what the supervisor returned
+            logger.info(f"🔍 Response type: {type(response)}")
+            logger.info(f"🔍 Has tool_calls: {bool(response.tool_calls)}")
+            logger.info(
+                f"🔍 Content length: {len(response.content) if response.content else 0}"
+            )
+            if response.content:
+                logger.info(f"🔍 Content preview: {response.content[:200]}...")
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 429:
                 logger.error("🚫 Rate limit hit in supervisor - stopping")
@@ -106,7 +116,7 @@ def build_graph(tool_sets, checkpointer):
                     "messages": [
                         AIMessage(
                             content="[ERROR] Rate limit reached.",
-                            name="supervisor",
+                            name=agent_name,
                             additional_kwargs={"timestamp": current_time},
                         )
                     ],
@@ -117,7 +127,7 @@ def build_graph(tool_sets, checkpointer):
                 "messages": [
                     AIMessage(
                         content=f"[ERROR] {e}",
-                        name="supervisor",
+                        name=agent_name,
                         additional_kwargs={"timestamp": current_time},
                     )
                 ],
@@ -129,7 +139,7 @@ def build_graph(tool_sets, checkpointer):
                 "messages": [
                     AIMessage(
                         content="[ERROR] Network unavailable.",
-                        name="supervisor",
+                        name=agent_name,
                         additional_kwargs={"timestamp": current_time},
                     )
                 ],
@@ -137,11 +147,11 @@ def build_graph(tool_sets, checkpointer):
         except Exception as e:
             logger.error(f"Error in supervisor_node: {e}")
             return {
-                "next": "supervisor",
+                "next": agent_name,
                 "messages": [
                     AIMessage(
                         content=f"[ERROR] {e}",
-                        name="supervisor",
+                        name=agent_name,
                         additional_kwargs={"timestamp": current_time},
                     ),
                 ],
@@ -150,7 +160,7 @@ def build_graph(tool_sets, checkpointer):
             # CASE A: The Supervisor wants to use a Tool (e.g., Search)
         if response.tool_calls:
             logger.info(
-                f"🔎 Supervisor is researching: {len(response.tool_calls)} tool calls"
+                f"🔎 {agent_name} is researching: {len(response.tool_calls)} tool calls"
             )
             logger.info(
                 f"Tool response: {response.content if response.content else 'No content returned'}"
@@ -167,7 +177,7 @@ def build_graph(tool_sets, checkpointer):
 
             agent_message = AIMessage(
                 content=response.content,
-                name="supervisor",
+                name=agent_name,
                 tool_calls=getattr(response, "tool_calls", []),
                 additional_kwargs={"timestamp": current_time},
             )
@@ -175,7 +185,7 @@ def build_graph(tool_sets, checkpointer):
             try:
                 await log_event(
                     thread_id=DEFAULT_THREAD_ID,
-                    actor="supervisor",
+                    actor=agent_name,
                     message=f"{', '.join([format_tool_to_text(tc.get('name', ''), json.dumps(tc.get('args', {}))) for tc in response.tool_calls])}",
                     metadata={
                         "routing_decision": "supervisor_tools",
@@ -198,80 +208,84 @@ def build_graph(tool_sets, checkpointer):
         if json_match:
             try:
                 parsed = json.loads(json_match.group(0))
-                step = parsed.get("step", "FINISH")
+                next_agent = parsed.get("next")
+                instructions = parsed.get("instructions", "")
 
-                agent_message = AIMessage(
-                    content=response.content,
-                )
+                if next_agent:
+                    logger.info(f"📋 Routing to: {next_agent}")
+                    logger.info(f"📝 Instructions: {instructions[:200]}...")
 
-                logger.info(f"➡ Supervisor Routing to: {step}")
-
-                # Log supervisor routing decision for audit trail
-                try:
-                    await log_event(
-                        thread_id=DEFAULT_THREAD_ID,
-                        actor="supervisor_routing",
-                        message=f"Routing to: {step}",
-                        metadata={
-                            "routing_decision": step,
-                            "full_content": str(response.content),
-                            "type": "routing",
+                    agent_message = AIMessage(
+                        content=instructions,
+                        name="supervisor",
+                        additional_kwargs={
+                            "timestamp": current_time,
+                            "routed_to": next_agent,
                         },
                     )
-                except Exception as e:
-                    logger.error(f"Failed to log supervisor routing audit: {e}")
 
-                return {"next": step, "messages": [agent_message]}
-            except Exception as e:
-                response = f"Error in json parsing tried to route to other agent: {e}"
+                    try:
+                        await log_event(
+                            thread_id=DEFAULT_THREAD_ID,
+                            actor="supervisor",
+                            message=f"Routing to {next_agent}: {instructions[:500]}",
+                            metadata={"next_agent": next_agent},
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to log supervisor routing event: {e}")
 
-                agent_message = AIMessage(
-                    content=response,
-                    name="supervisor",
-                    additional_kwargs={"timestamp": current_time},
+                    return {
+                        "next": next_agent,
+                        "messages": [agent_message],
+                    }
+
+            except json.JSONDecodeError as e:
+                logger.warning(
+                    f"⚠️ JSON parsing failed, treating as direct response: {e}"
                 )
-
-                return {
-                    "next": "supervisor",
-                    "messages": [agent_message],
-                }
+            except Exception as e:
+                logger.error(f"❌ Unexpected error parsing routing: {e}")
 
         # CASE C: The Supervisor decided to answer the user directly
-        if (
-            hasattr(response, "content")
-            and response.content
-            and not response.tool_calls
-        ):
-            content_preview = (
-                response.content[:1000] + "..."
-                if len(response.content) > 100000
-                else response.content
+        # (This includes markdown tables, formatted text, etc.)
+        if response.content and not response.tool_calls:
+            logger.info(
+                f"💬 Direct response from supervisor ({len(response.content)} chars)"
             )
+
             agent_message = AIMessage(
                 content=response.content,
                 name="supervisor",
                 additional_kwargs={"timestamp": current_time},
             )
 
-            # Log supervisor direct response for audit trail
             try:
                 await log_event(
                     thread_id=DEFAULT_THREAD_ID,
-                    actor="supervisor_task_response",
-                    message=response.content,
-                    metadata={
-                        "routing_decision": "FINISH",
-                        "direct_response": True,
-                        "type": "content",
-                    },
+                    actor="supervisor",
+                    message=f"Direct response: {response.content[:500]}",
+                    metadata={},
                 )
             except Exception as e:
-                logger.error(f"Failed to log supervisor response audit: {e}")
+                logger.error(f"Failed to log supervisor direct response: {e}")
 
             return {
-                "next": "FINISH",  # Or loop back to Human
+                "next": "FINISH",
                 "messages": [agent_message],
             }
+
+        # CASE D: Fallback - something unexpected happened
+        logger.error("⚠️ Supervisor returned unexpected format")
+        return {
+            "next": "FINISH",
+            "messages": [
+                AIMessage(
+                    content="I apologize, but I encountered an unexpected issue processing your request.",
+                    name="supervisor",
+                    additional_kwargs={"timestamp": current_time},
+                )
+            ],
+        }
 
     builder = StateGraph(State)
 

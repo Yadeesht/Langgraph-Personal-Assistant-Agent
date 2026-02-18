@@ -12,6 +12,8 @@ from config.settings import (
     content_config,
     planning_config,
     supervisor_config,
+    VOICE_INPUT_STATUS,
+    VOICE_OUTPUT_STATUS,
 )
 from core.graph import build_graph
 from core.voice_inference import VoiceInference
@@ -25,13 +27,14 @@ from utils.memory_manager import log_event
 
 logger = setup_logger(__name__)
 
-SESSION_TIMEOUT = 600
+SESSION_TIMEOUT = 300
 WAKE_WORD = "hey_jarvis"
 
 
 async def keyword_listener(queue, loop, agent_state):
     while True:
         try:
+            logger.info("type or speak with jarvis")
             user_input = await loop.run_in_executor(None, input)
             if user_input.strip():
                 agent_state["last_interaction"] = time.time()
@@ -50,13 +53,15 @@ async def voice_listener(queue, voice_agent, loop, agent_state):
             is_session_active = time_since < SESSION_TIMEOUT
 
             if not is_session_active:
-                print("type or say the jarvis", end="\r", flush=True)
+                logger.info("type or speak with jarvis")
                 text = await loop.run_in_executor(None, voice_agent.wait_for_wake_word)
             else:
-                print("type or say what you need", end="\r", flush=True)
+                logger.info(
+                    "type or speak with agent"
+                )  # just to identify the session status
                 text = await loop.run_in_executor(None, voice_agent.listen)
 
-            print(" " * 50, end="\r", flush=True)
+            logger.info("=" * 50)
 
             if text.strip():
                 agent_state["last_interaction"] = time.time()
@@ -106,20 +111,29 @@ async def main():
             # with open("docs/images/agent_structure_graph.png", "wb") as f:
             #     f.write(png_bytes)
 
-            config = {"configurable": {"thread_id": DEFAULT_THREAD_ID}}
+            config = {
+                "configurable": {
+                    "thread_id": DEFAULT_THREAD_ID,
+                    "is_voice": VOICE_INPUT_STATUS,
+                }
+            }
 
-            voice = VoiceInference()
+            voice = (
+                VoiceInference() if VOICE_INPUT_STATUS or VOICE_OUTPUT_STATUS else None
+            )
 
             agent_state = {"last_interaction": 0}
 
             event_queue = asyncio.Queue()
             loop = asyncio.get_running_loop()
 
-            # Start listeners
             asyncio.create_task(keyword_listener(event_queue, loop, agent_state))
-            asyncio.create_task(voice_listener(event_queue, voice, loop, agent_state))
+            if VOICE_INPUT_STATUS:
+                asyncio.create_task(
+                    voice_listener(event_queue, voice, loop, agent_state)
+                )
 
-            logger.info(f"🎤 Say '{WAKE_WORD}' or type your message")
+            logger.info(f"🎤 Say Hey J.A.R.V.I.S or type your message")
             logger.info("💡 Type 'exit' or 'quit' to stop\n")
 
             while True:
@@ -155,10 +169,11 @@ async def main():
                 last_msg = state["messages"][-1]
                 if last_msg.type == "ai" and last_msg.content:
                     final_response = last_msg.content
-                    print(f"🤖 Agent: {final_response}")
-                    print(f"{'─' * 50}\n")
+                    logger.info("=" * 80)
+                    logger.info(f"🤖 Agent: {final_response}")
+                    logger.info("=" * 80)
 
-                    if source == "VOICE":
+                    if VOICE_OUTPUT_STATUS and voice:
                         clean_resp = clean_text_for_tts(final_response)
                         await loop.run_in_executor(None, voice.speak, clean_resp)
                         await asyncio.sleep(0.5)
