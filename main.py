@@ -102,12 +102,12 @@ async def main():
             checkpointer = AsyncSqliteSaver(connection)
             graph = build_graph(tool_sets, checkpointer)
 
-            # g = graph.get_graph()
+            g = graph.get_graph()
 
-            # png_bytes = g.draw_mermaid_png()
+            png_bytes = g.draw_mermaid_png()
 
-            # with open("docs/images/agent_structure_graph.png", "wb") as f:
-            #     f.write(png_bytes)
+            with open("docs/images/agent_structure_graph.png", "wb") as f:
+                f.write(png_bytes)
 
             config = {
                 "configurable": {

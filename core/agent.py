@@ -12,6 +12,7 @@ from langchain_core.messages import (
 import aiosqlite
 from datetime import datetime
 import sys
+import re
 from pathlib import Path
 import time
 
@@ -65,7 +66,7 @@ def agent_node_factory(llm_with_tools, system_prompt, agent_name: str):
             if (
                 getattr(msg, "name", "") == "supervisor"
                 and isinstance(msg, AIMessage)
-                and msg.additional_kwargs("routed_to") == current_agent_name
+                and msg.additional_kwargs.get("routed_to") == current_agent_name
             ):
                 instruction_msg = HumanMessage(
                     f"Assigned Task from supervisor:\n{msg.content}"
@@ -96,7 +97,7 @@ def agent_node_factory(llm_with_tools, system_prompt, agent_name: str):
         logger.info("=" * 80)
         if last_messages:  # this is for logs purpose only
             content_preview = sanitize_history(last_messages)
-            content_preview = json.dumps(content_preview[-2:], indent=2)
+            content_preview = json.dumps(content_preview, indent=2)
             logger.info(f"📝 Content preview: {content_preview}")
 
         logger.info("=" * 80)
@@ -170,6 +171,8 @@ def agent_node_factory(llm_with_tools, system_prompt, agent_name: str):
                 "TALK TO USER:" in agent_message.content.upper()
             ):
                 current_agent_name = "Clarification Agent"
+                final_content = re.sub("CLARIFICATION NEEDED", "", final_content)
+                final_content = re.sub("TALK TO USER", "", final_content)
 
         try:
             if final_content:
@@ -193,7 +196,21 @@ def agent_node_factory(llm_with_tools, system_prompt, agent_name: str):
         except Exception as e:
             logger.error(f"Failed to log audit event: {e}")
 
-        return {"messages": [agent_message]}
+        messages_to_return = [agent_message]
+
+        if final_content and "FINAL ANSWER:" in final_content.upper():
+            cleanup_actions = []
+
+            for m in reversed(state["messages"]):
+                if getattr(m, "name", "") == "supervisor" and isinstance(m, AIMessage):
+                    break
+
+                if m.type in ["tool", "ai"] and m.id:
+                    cleanup_actions.append(RemoveMessage(m.id))
+
+            messages_to_return = cleanup_actions + messages_to_return
+
+        return {"messages": messages_to_return}
 
     return agent_node
 

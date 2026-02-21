@@ -29,7 +29,7 @@ from utils.helper import (
     request_counter,
     setup_logger,
 )
-from utils.memory_manager import log_event
+from utils.memory_manager import log_event, sanitize_history
 
 logger = setup_logger(__name__)
 
@@ -90,6 +90,12 @@ def build_graph(tool_sets, checkpointer):
             start_on="human",
         )
 
+        logger.info("=" * 80)
+        if last_messages:  # this is for logs purpose only
+            content_preview = sanitize_history(last_messages)
+            content_preview = json.dumps(content_preview[-2:], indent=2)
+            logger.info(f"📝 Content preview: {content_preview}")
+
         try:
             summary = state.get("summary", None)
             if summary:
@@ -99,14 +105,17 @@ def build_graph(tool_sets, checkpointer):
                 last_messages = [summary_msg] + last_messages
 
             is_voice = state.get("configurable", {}).get("is_voice", False)
+
             final_prompt = system_prompt
+
             if is_voice:
                 final_prompt += VOICE_INTERACTION_PROMPT
                 logger.info("voice prompt added")
 
             message = [SystemMessage(content=final_prompt)] + last_messages
-
             response = await llm_with_tools.ainvoke(message)
+            logger.info(f"Response from supervisor: {response}")
+
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 429:
                 logger.error("🚫 Rate limit hit in supervisor - stopping")
@@ -156,14 +165,8 @@ def build_graph(tool_sets, checkpointer):
                 ],
             }
 
-            # CASE A: The Supervisor wants to use a Tool (e.g., Search)
+            # CASE A: The Supervisor wants to use a Tool
         if response.tool_calls:
-            logger.info(
-                f"🔎 {agent_name} is researching: {len(response.tool_calls)} tool calls"
-            )
-            logger.info(
-                f"Tool response: {response.content if response.content else 'No content returned'}"
-            )
             tool_names = []
             for i, tool_call in enumerate(response.tool_calls, 1):
                 logger.info(f"   Tool #{i}:")
@@ -171,7 +174,6 @@ def build_graph(tool_sets, checkpointer):
                 logger.info(
                     f"      Args: {json.dumps(tool_call.get('args', {}), indent=10)}"
                 )
-                logger.info(f"      ID: {tool_call.get('id', 'N/A')}")
                 tool_names.append(tool_call.get("name", "N/A"))
 
             agent_message = AIMessage(
@@ -196,7 +198,7 @@ def build_graph(tool_sets, checkpointer):
                 logger.error(f"Failed to log supervisor tool audit: {e}")
 
             return {
-                "next": "supervisor_tools",  # New internal route
+                "next": "supervisor_tools",
                 "messages": [agent_message],
             }
 
@@ -247,9 +249,7 @@ def build_graph(tool_sets, checkpointer):
 
         # CASE C: The Supervisor decided to answer the user directly
         # (This includes markdown tables, formatted text, etc.)
-        if response.content and not response.tool_calls:
-            logger.info("💬 Direct response from supervisor")
-
+        if response.content:
             agent_message = AIMessage(
                 content=response.content,
                 name="supervisor",

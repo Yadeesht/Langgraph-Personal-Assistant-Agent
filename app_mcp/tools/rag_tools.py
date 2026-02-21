@@ -39,10 +39,11 @@ def get_kg_instance():
 @supervisor_server.tool()
 async def retrieve_from_knowledge_graph(query: str):
     """
-    Query the internal Knowledge Graph to retrieve context about specific entities (Person, Project, Organization, Tool, Concept, Event, Resource).
+    USE THIS TOOL TO QUERY THE INTERNAL KNOWLEDGE GRAPH ONLY NOT ANY OTHER TOOL FOR KNOWLEDGE GRAPH
+        Query the internal Knowledge Graph to retrieve context about specific entities (Person, Project, Organization, Tool, Concept, Event, Resource).
 
-    Args:
-        query: Search string or entity reference used to locate related knowledge graph nodes.
+        Args:
+            query: Search string or entity reference used to locate related knowledge graph nodes.
     """
     try:
         kg = get_kg_instance()
@@ -161,6 +162,8 @@ async def add_information_to_knowledge_graph(details: str):
 @supervisor_server.tool()
 async def retrieve_relevant_chunks(query: str, top_k: int = 5, conditions: dict = None):
     """
+    USE THIS TOOL TO SEARCH CONVERSATION HISTORY WITH EPISODIC RAG ONLY THIS IS NOT KNOWLEDGE GRAPH TOOL
+
     Search conversation history using Episodic RAG to retrieve past interactions, decisions, and contextual information.
 
     Use this to recall what was discussed in previous conversations, find code snippets mentioned earlier,

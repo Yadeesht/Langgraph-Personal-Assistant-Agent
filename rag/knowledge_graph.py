@@ -125,9 +125,14 @@ class KnowledgeGraph:
         except Exception as e:
             logger.info(f"Error clearing database: {e}")
 
-    def _compute_embedding(self, text: str):
+    def _compute_embedding(self, text: str, is_query: bool = False):
         try:
-            embedding = self.model.encode(text)
+            if is_query:
+                text = (
+                    f"Represent this sentence for searching relevant passages: {text}"
+                )
+            embedding = self.model.encode(text, normalize_embeddings=True)
+
             if hasattr(embedding, "tolist"):
                 return embedding.tolist()
             return list(embedding)
@@ -143,7 +148,7 @@ class KnowledgeGraph:
     ):
         try:
             text = (
-                f"Entity: {node_id} | Type: {node_type} | Keywords: {search_keywords}"
+                f"{node_id} is a {node_type}. {description} Keywords: {search_keywords}"
             )
             embedding = self._compute_embedding(text)
 
@@ -279,7 +284,7 @@ class KnowledgeGraph:
             query = """
                 CALL QUERY_VECTOR_INDEX('Entity', 'Entity_embedding_idx', CAST($query_embedding, 'FLOAT[384]'), $top_k)
                 WITH node AS n, score
-                WHERE score > 0.5
+                WHERE score > 0.35
                 RETURN 
                     n.id AS id, 
                     n.type AS type, 
@@ -314,13 +319,14 @@ class KnowledgeGraph:
         Find similar nodes + their neighbors using standard Cypher matches.
         Independent of internal index names.
         """
-        query_embedding = self._compute_embedding(keywords)
+        query_embedding = self._compute_embedding(keywords, is_query=True)
 
         query = """
         /* 1. Get Hop 0 (Seeds) */
-        CALL QUERY_VECTOR_INDEX('Entity', 'Entity_embedding_idx', CAST($query_embedding, 'FLOAT[384]'), $top_k)
-        WITH node AS n, score AS seed_score
-        WHERE seed_score > 0.65
+        CALL QUERY_VECTOR_INDEX('Entity', 'Entity_embedding_idx', $query_embedding, $top_k)
+        YIELD node, distance
+        WITH node AS n, (1 - distance) AS seed_score
+        WHERE seed_score > 0.35
         RETURN 
             n.id AS id, 
             n.type AS type, 
@@ -334,13 +340,14 @@ class KnowledgeGraph:
         UNION ALL
 
         /* 2. Get Hop 1 (High-Confidence Neighbors) */
-        CALL QUERY_VECTOR_INDEX('Entity', 'Entity_embedding_idx', CAST($query_embedding, 'FLOAT[384]'), $top_k)
-        WITH node AS n, score
+        CALL QUERY_VECTOR_INDEX('Entity', 'Entity_embedding_idx', $query_embedding, $top_k)
+        YIELD node, distance
+        WITH node AS n, (1 - distance) AS score
         MATCH (n)-[r]-(neighbor)
         WHERE neighbor.embedding IS NOT NULL
-        WITH n, r, neighbor, score, array_cosine_similarity(neighbor.embedding, CAST($query_embedding, 'FLOAT[384]')) AS score2
-        WITH n,r,neighbor, CAST((0.9*score + 0.1*score2),'FLOAT') AS weighted_score
-        WHERE weighted_score > 0.5
+        WITH n, r, neighbor, score, array_cosine_similarity(neighbor.embedding, $query_embedding) AS score2
+        WITH n, r, neighbor, (0.9 * score + 0.1 * score2) AS weighted_score
+        WHERE weighted_score > 0.25
         RETURN 
             neighbor.id AS id, 
             neighbor.type AS type, 
