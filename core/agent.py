@@ -185,7 +185,8 @@ def agent_node_factory(llm_with_tools, system_prompt, agent_name: str):
                 tool_calls=getattr(msg, "tool_calls", []),
             )
         try:
-            if final_content:
+            has_tools = bool(getattr(msg, "tool_calls", []))
+            if final_content and not has_tools:
                 await log_event(
                     thread_id=DEFAULT_THREAD_ID,
                     actor=current_agent_name,
@@ -196,7 +197,7 @@ def agent_node_factory(llm_with_tools, system_prompt, agent_name: str):
                     },
                 )
 
-            if hasattr(msg, "tool_calls") and msg.tool_calls:
+            if has_tools:
                 await log_event(
                     thread_id=DEFAULT_THREAD_ID,
                     actor=current_agent_name,
@@ -331,7 +332,32 @@ def code_execution_factory(llm, tool_sets, agent_name: str):
 async def summerizer_node(state: State):
     logger.info("📝 Summarizer node activated to condense conversation history.")
 
-    messages_to_summerize = state["messages"][:-15]
+    messages = state["messages"]
+
+    MAX_RECENT_TOKENS = 4000
+    current_tokens = 0
+    split_index = 0
+
+    for i in range(len(messages) - 1, -1, -1):
+        msg_token_count = count_tokens([messages[i]])
+
+        if (
+            current_tokens + msg_token_count > MAX_RECENT_TOKENS
+            and (len(messages) - i) > 2
+        ):
+            split_index = i + 1
+            break
+
+        current_tokens += msg_token_count
+    if split_index == 0:
+        split_index = max(0, len(messages) - 2)
+
+    messages_to_summerize = messages[:split_index]
+
+    logger.info(
+        f"📊 Dynamic split: Archiving {len(messages_to_summerize)} messages. Retaining {len(messages) - split_index} messages ({current_tokens} tokens)."
+    )
+
     # right now the prompt is not aware of we sending the summary and to summerize previous messages too
     prompt_content = f"Summary:\n{state.get('summary', '')}\n\n Chat Messages:\n{messages_to_summerize}"
     llm = build_llm()
@@ -454,7 +480,15 @@ async def updation_knowledge_graph(
         else:
             last_update_str = str(last_update)
 
-        query = "SELECT actor,message FROM human_logs WHERE thread_id = ? AND actor IN (?,?,?) AND timestamp > ? ORDER BY timestamp ASC;"
+        query = """
+            SELECT actor, message 
+            FROM human_logs 
+            WHERE thread_id = ? 
+            AND actor IN (?,?,?) 
+            AND timestamp > ? 
+            AND COALESCE(json_extract(metadata, '$.type'), '') != 'tool_call'
+            ORDER BY timestamp ASC;
+        """
 
         target_actors = ("human", "supervisor", "clarification_agent")
 
@@ -464,6 +498,7 @@ async def updation_knowledge_graph(
             ) as cursor:
                 rows = await cursor.fetchall()
                 logger.info(f"🔎 Found {len(rows)} new log entries in DB.")
+
         if not rows:
             logger.info("↩️ No new logs found since last update. Exiting.")  # NEW LOG
             return
@@ -505,10 +540,10 @@ async def updation_knowledge_graph(
                 )
             elif action == "UPDATE":
                 kg.add_entity(
-                    node_id=entity["id"] and not None,
-                    node_type=entity.get("type", "unknown") and not None,
-                    search_keywords=", ".join(entity.get("keywords", [])) and not None,
-                    description=entity.get("description", "") and not None,
+                    node_id=entity.get("id"),
+                    node_type=entity.get("type") or "unknown",
+                    search_keywords=", ".join(entity.get("search_keywords", [])),
+                    description=entity.get("description") or "",
                 )
 
         for rel in resolution.get("relationships", []):

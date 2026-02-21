@@ -217,11 +217,11 @@ class EpisodicRAG:
                 logger.info(f"Last summary date set to: {past_summary_date}")
 
             query = """
-                SELECT timestamp, actor, message
+                SELECT timestamp, actor, message, metadata
                 FROM human_logs 
                 WHERE timestamp > ? 
-                AND actor != 'supervisor_routing' 
-                AND actor != 'summerizer_node'
+                AND actor NOT IN ('supervisor_routing', 'summerizer_node')
+                AND COALESCE(json_extract(metadata, '$.type'), '') != 'tool_call'
                 ORDER BY timestamp ASC
             """
 

@@ -15,7 +15,7 @@ logger = setup_logger(__name__)
 class State(TypedDict):
     messages: Annotated[list, add_messages]
     summary: Optional[str]
-    last_memory_timestamp: Optional[float] = 1770195927.8211298
+    last_memory_timestamp: Optional[float] = 1770195927.8211298  # random time
     next: Optional[str]
 
 
@@ -100,17 +100,18 @@ async def route_start(state: State) -> str:
         if current_day_ist > memory_day_ist:
             logger.info("📅 New Day Detected: Triggering memory optimization.")
             query = """
-            SELECT timestamp, actor, message
-            FROM human_logs 
-            WHERE timestamp > ? 
-            AND actor != 'supervisor_routing' 
-            AND actor != 'summerizer_node'
+                SELECT timestamp, actor, message, metadata
+                FROM human_logs 
+                WHERE timestamp > ? 
+                AND actor NOT IN ('supervisor_routing', 'summerizer_node')
+                AND COALESCE(json_extract(metadata, '$.type'), '') != 'tool_call'
+                ORDER BY timestamp ASC
             """
             async with aiosqlite.connect(MEMORY_DB) as db:
                 async with db.execute(query, (query_ts,)) as cursor:
                     rows = await cursor.fetchall()
                     logger.info(f"Processing {len(rows)} raw logs...")
-            if len(rows) < 15:
+            if len(rows) > 0:
                 should_update_memory = True
 
     if should_update_memory:
@@ -140,7 +141,7 @@ async def route_start(state: State) -> str:
                 ]:
                     return agent_name
 
-    if count_tokens(messages[:-15]) > 8000:
+    if count_tokens(messages) > 8000:
         return "summerizer_node"
 
     return "supervisor"

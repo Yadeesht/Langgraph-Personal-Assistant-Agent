@@ -21,15 +21,21 @@ SUPERVISOR_SERVER = BASE_DIR / "app_mcp" / "core" / "supervisor_server.py"
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+HF_API_KEY = os.getenv("HF_TOKEN")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+HF_BASE_URL = "https://router.huggingface.co/v1"
 
 DEFAULT_OPEN_MODEL = "openai/gpt-oss-20b:free"
 DEFAULT_OPEN_CODE_MODEL = "nvidia/nemotron-3-nano-30b-a3b:free"
 DEFAULT_GROQ_MODEL = "openai/gpt-oss-20b"
+DEFAULT_HF_MODEL = "openai/gpt-oss-20b:groq"
 MAX_RETRIES = 3
 REQUEST_TIMEOUT = 30
+
+# LLM Provider selection: "openrouter" | "groq" | "huggingface"
+LLM_PROVIDER = "openrouter"
 
 EMBEDDING_BGE_MODEL_PATH = "D:/Agentic AI/models/bge-small"
 EMBEDDING_GTE_MODEL_PATH = "D:/Agentic AI/models/gte-base"

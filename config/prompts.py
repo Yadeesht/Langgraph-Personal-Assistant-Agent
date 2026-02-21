@@ -163,25 +163,56 @@ The Supervisor CANNOT see your Drive/Docs tool outputs. Your FINAL ANSWER must b
 - Focus strictly on content management and generation.
 """
 
-HISTORY_SUMMARIZE_PROMPT = """Summarize this conversation between AI assistant and user. Focus on: key points, decisions, actions taken. Be concise."""
+HISTORY_SUMMARIZE_PROMPT = """You are the Context Compaction Engine for JARVIS.
+Your job is to maintain a dense, structured "state" of the ongoing conversation.
+
+You will be provided with:
+1. The CURRENT SUMMARY (the existing state of the conversation).
+2. NEW CHAT MESSAGES (recent interactions to be archived).
+
+INSTRUCTIONS:
+Carefully merge the new information into the existing summary. Do NOT just append to the bottom. Update, modify, or remove outdated information to reflect the absolute current reality of the user's goals and progress.
+
+Drop all transient chat (pleasantries, greetings, formatting errors, intermediate tool failures) and keep only high-signal semantic data.
+
+OUTPUT FORMAT (Use these exact Markdown headers):
+
+### Active Goals
+(What is the user currently trying to achieve?)
+
+### Established Facts & Constraints
+(Key information, preferences, specific dates, or technical constraints mentioned by the user.)
+
+### Completed Actions
+(Significant tools executed, emails sent, files created, or tasks definitively finished.)
+
+### Open Questions / Pending Tasks
+(What is the system or user waiting on? Are there unresolved bugs or clarifications needed?)
+"""
 
 KNOWLEDGE_GRAPH_SEARCH_PROMPT = """Answer questions using the provided knowledge graph data. Be accurate and relevant."""
 
-KNOWLEDGE_GRAPH_EXTRACTION_PROMPT = """Extract high-value memories for Yadeesh's Knowledge Graph.
+KNOWLEDGE_GRAPH_EXTRACTION_PROMPT = """You are the Knowledge Graph Extractor for Yadeesh's AI system. 
+Extract high-value, persistent memories from the provided chat log.
 
-**7 Entity Types**: Person, Project, Organization, Tool, Concept, Event, Resource
+**7 Allowed Entity Types**: Person, Project, Organization, Tool, Concept, Event, Resource
 
-**Extract when**:
-- Helps Yadeesh remember workspace/progress/network
-- Specific details (emails, statuses, roles)
-- Skip greetings/debug logs
+**Extraction Rules (STRICT)**:
+1. Extract ONLY explicitly stated facts, preferences, and relationships.
+2. Resolve pronouns: "I", "me", "my", "mine" MUST always resolve to the entity "Yadeesh".
+3. Canonicalize names: Use clean, capitalized base names (e.g., "DeepShield", not "the deepshield project").
+4. Skip transient chat, greetings, complaints, and debug/tool execution logs.
+5. If no high-value memories are found, you MUST return empty arrays for entities and relationships.
+6. You have to store every person details in the knowledge graph 
 
-**Relationships**: UPPER_SNAKE_CASE (WORKS_WITH, USES_MODEL, MEMBER_OF, DEVELOPED_AT)
+**Relationships**: Must be UPPER_SNAKE_CASE (e.g., WORKS_WITH, USES_MODEL, MEMBER_OF, DEVELOPED_AT).
+
+**Output Schema**:
+You must return a raw JSON object containing a "candidates" key, which holds "entities" and "relationships" arrays.
 
 **Example**:
 Input: "send mail to raajan at raanjan@gmail.com who works with me in college club"
 Output:
-```json
 {
   "candidates": {
     "entities": [
@@ -204,42 +235,61 @@ Output:
     ]
   }
 }
-```
 
-Return ONLY JSON.
+Return ONLY raw JSON. Do not use markdown formatting blocks (```json).
 """
 
-KNOWLEDGE_GRAPH_VALIDATION_PROMPT = """Reconcile NEW candidates against EXISTING graph to avoid duplicates.
+KNOWLEDGE_GRAPH_VALIDATION_PROMPT = """You are the Knowledge Graph Validator for Yadeesh's AI system.
+Your job is to reconcile NEW candidate entities and relationships against the EXISTING graph to prevent duplicates and merge knowledge.
 
-**Rules**:
-1. Semantic match (VIT = VIT Chennai) → UPDATE existing
-2. Type conflict (ViT Tool ≠ VIT Org) → CREATE new
-3. Duplicate relationship → Skip, don't recreate
-4. UPDATE action → Include all fields (id, type, description, keywords)
+**Reconciliation Rules (STRICT)**:
+1. Semantic Match (e.g., "VIT" new == "VIT Chennai" existing) → Action: "UPDATE". You MUST use the exact `id` from the EXISTING graph. Merge the descriptions and combine all search keywords.
+2. Type Conflict (e.g., "ViT" Tool ≠ "VIT" Org) → Action: "CREATE".
+3. Exact Duplicate (Entity or Relationship already exists with same meaning) → Action: "DISCARD".
+4. UPDATE action → You must include all fields (id, type, description, search_keywords) with the newly merged data.
 
-**Input**: Existing nodes/relations + New candidates
-**Output**: JSON only
-```json
+**Input Variables**:
+- EXISTING GRAPH: The current nodes and relationships.
+- NEW CANDIDATES: The recently extracted data to integrate.
+
+**Output Schema**:
+You must return a raw JSON object with a "resolution" key containing "entities" and "relationships" arrays.
+
+**Example Output**:
 {
   "resolution": {
     "entities": [
       {
-        "action": "CREATE|UPDATE",
-        "id": "FinalID",
-        "type": "EntityType",
-        "description": "Complete description",
-        "search_keywords": ["key1", "key2"]
+        "action": "CREATE",
+        "id": "LangGraph",
+        "type": "Tool",
+        "description": "A Python library for building stateful multi-actor applications",
+        "search_keywords": ["langgraph", "agents"]
+      },
+      {
+        "action": "UPDATE",
+        "id": "VIT Chennai",
+        "type": "Organization",
+        "description": "Yadeesh's college; studying B.Tech CSE AI/ML",
+        "search_keywords": ["vit chennai", "vit", "college", "university"]
       }
     ],
     "relationships": [
       {
-        "action": "CREATE|UPDATE",
-        "source": "SourceID",
-        "target": "TargetID",
-        "relation_type": "REL_TYPE"
+        "action": "CREATE",
+        "source": "Yadeesh",
+        "target": "LangGraph",
+        "relation_type": "USES_TOOL"
+      },
+      {
+        "action": "DISCARD",
+        "source": "Yadeesh",
+        "target": "VIT Chennai",
+        "relation_type": "STUDIES_AT"
       }
     ]
   }
 }
-```
+
+Return ONLY raw JSON. Do not use markdown formatting blocks (```json).
 """

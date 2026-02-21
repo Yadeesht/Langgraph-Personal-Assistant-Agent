@@ -217,7 +217,7 @@ def build_graph(tool_sets, checkpointer):
 
                     agent_message = AIMessage(
                         content=instructions,
-                        name="supervisor",
+                        name="supervisor_routing",
                         additional_kwargs={
                             "timestamp": current_time,
                             "routed_to": next_agent,
@@ -227,7 +227,7 @@ def build_graph(tool_sets, checkpointer):
                     try:
                         await log_event(
                             thread_id=DEFAULT_THREAD_ID,
-                            actor="supervisor",
+                            actor="supervisor_routing",
                             message=f"Routing to {next_agent}: {instructions[:500]}",
                             metadata={"next_agent": next_agent},
                         )
