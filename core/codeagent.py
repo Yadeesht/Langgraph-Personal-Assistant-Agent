@@ -22,6 +22,17 @@ class CodeExecutionAgent:
 
         logger.info(f"Task Specs: {task_spec}")
 
+        query_acceptence = True if task_spec.required_tools_hint else False
+
+        if not query_acceptence:
+            logger.warning(
+                "Query was rejected by intent resolver. Due to unclear intent or no tools required."
+            )
+            return {
+                "status": "error",
+                "summary": "Query rejected due to unclear intent or no tools required",
+            }
+
         tool_map = self._create_tool_map(task_spec.required_tools_hint)
 
         tool_schemas = await self._load_tool_schemas(task_spec.required_tools_hint)
@@ -191,8 +202,7 @@ class CodeExecutionAgent:
 
             ### IMPORTANT CONSTRAINTS
 
-            - Base your decision ONLY on the LATEST user request
-            - Ignore earlier intent unless it is unfinished or caused an error
+            - Base your decision BASED ON user request
             - If the request can be answered by reasoning alone, return an empty tool list
             - Never infer tools from intent like "prepare", "think", "draft", or "explain"
             - If the user asks for advice or explanation ONLY, no tools are required

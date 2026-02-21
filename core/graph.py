@@ -114,7 +114,6 @@ def build_graph(tool_sets, checkpointer):
 
             message = [SystemMessage(content=final_prompt)] + last_messages
             response = await llm_with_tools.ainvoke(message)
-            logger.info(f"Response from supervisor: {response}")
 
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 429:

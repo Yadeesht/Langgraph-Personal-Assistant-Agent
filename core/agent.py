@@ -77,7 +77,10 @@ def agent_node_factory(llm_with_tools, system_prompt, agent_name: str):
             else:
                 filtered_messages.insert(0, msg)
 
-        if not routing_found:
+        if not routing_found:  # this is never gonna happen
+            logger.info(
+                "No routing instruction found should never happen i said here it is in my logs so i accept i am dumb 🤣🤣"
+            )
             last_messages = trim_messages(
                 messages,
                 max_tokens=30000,
@@ -95,7 +98,7 @@ def agent_node_factory(llm_with_tools, system_prompt, agent_name: str):
             last_messages = filtered_messages
 
         logger.info("=" * 80)
-        if last_messages:  # this is for logs purpose only
+        if last_messages:
             content_preview = sanitize_history(last_messages)
             content_preview = json.dumps(content_preview, indent=2)
             logger.info(f"📝 Content preview: {content_preview}")
@@ -142,14 +145,13 @@ def agent_node_factory(llm_with_tools, system_prompt, agent_name: str):
         final_content = raw_content
 
         if hasattr(msg, "tool_calls") and msg.tool_calls:
-            logger.info(f"🔧 Tool calls made: {len(msg.tool_calls)}")
             for i, tool_call in enumerate(msg.tool_calls, 1):
                 logger.info(f"   Tool #{i}:")
                 logger.info(f"      Name: {tool_call.get('name', 'N/A')}")
                 logger.info(
                     f"      Args: {json.dumps(tool_call.get('args', {}), indent=10)}"
                 )
-                logger.info(f"      ID: {tool_call.get('id', 'N/A')}")
+                # logger.info(f"      ID: {tool_call.get('id', 'N/A')}")
 
         if hasattr(msg, "content") and msg.content and not msg.tool_calls:
             content_preview = (
@@ -160,20 +162,28 @@ def agent_node_factory(llm_with_tools, system_prompt, agent_name: str):
 
         logger.info("=" * 80)
 
-        agent_message = AIMessage(
-            content=final_content,
-            name=current_agent_name,
-            tool_calls=getattr(msg, "tool_calls", []),
+        is_report = final_content and (
+            "FINAL ANSWER:" in final_content.upper()
+            or "CLARIFICATION NEEDED:" in final_content.upper()
+            or "TALK TO USER:" in final_content.upper()
         )
 
-        if hasattr(agent_message, "content") and isinstance(agent_message.content, str):
-            if ("CLARIFICATION NEEDED:" in agent_message.content.upper()) or (
-                "TALK TO USER:" in agent_message.content.upper()
+        if is_report:
+            agent_message = HumanMessage(
+                content=f"[SYSTEM NOTIFICATION - {current_agent_name.upper()} REPORT]:\n{final_content}",
+                name=current_agent_name,
+            )
+            if (
+                "CLARIFICATION NEEDED:" in final_content.upper()
+                or "TALK TO USER:" in final_content.upper()
             ):
                 current_agent_name = "Clarification Agent"
-                final_content = re.sub("CLARIFICATION NEEDED", "", final_content)
-                final_content = re.sub("TALK TO USER", "", final_content)
-
+        else:
+            agent_message = AIMessage(
+                content=final_content,
+                name=current_agent_name,
+                tool_calls=getattr(msg, "tool_calls", []),
+            )
         try:
             if final_content:
                 await log_event(
@@ -266,32 +276,33 @@ def code_execution_factory(llm, tool_sets, agent_name: str):
                 asyncio.set_event_loop(loop)
 
             msg = loop.run_until_complete(agent.execute_workflow(last_messages))
-            try:
-                generated_code = msg.get("generated_code", "")
-                task_goal = msg.get("task_goal", "Unknown Goal")
+            if msg and hasattr(msg, "status") and msg.status == "sucess":
+                try:
+                    generated_code = msg.get("generated_code", "")
+                    task_goal = msg.get("task_goal", "Unknown Goal")
 
-                if generated_code:
+                    if generated_code:
+                        await log_event(
+                            thread_id=DEFAULT_THREAD_ID,
+                            actor="code_agent",
+                            message=f"PLAN: {task_goal}\n\nEXECUTED CODE:\n```python\n{generated_code}\n```",
+                            metadata={
+                                "type": "code_execution",
+                            },
+                        )
+
+                    execution_summary = msg.get("summary", "No summary provided")
+                    execution_details = json.dumps(msg.get("details", {}), indent=2)
+
                     await log_event(
                         thread_id=DEFAULT_THREAD_ID,
                         actor="code_agent",
-                        message=f"PLAN: {task_goal}\n\nEXECUTED CODE:\n```python\n{generated_code}\n```",
-                        metadata={
-                            "type": "code_execution",
-                        },
+                        message=f"EXECUTION RESULT:\nStatus: {msg.get('status')}\nSummary: {execution_summary}\nDetails: {execution_details}",
+                        metadata={"type": "code_output", "status": msg.get("status")},
                     )
 
-                execution_summary = msg.get("summary", "No summary provided")
-                execution_details = json.dumps(msg.get("details", {}), indent=2)
-
-                await log_event(
-                    thread_id=DEFAULT_THREAD_ID,
-                    actor="code_agent",
-                    message=f"EXECUTION RESULT:\nStatus: {msg.get('status')}\nSummary: {execution_summary}\nDetails: {execution_details}",
-                    metadata={"type": "code_output", "status": msg.get("status")},
-                )
-
-            except Exception as log_error:
-                logger.error(f"Failed to log code execution event: {log_error}")
+                except Exception as log_error:
+                    logger.error(f"Failed to log code execution event: {log_error}")
 
         except Exception as e:
             logger.error(f"Code execution error: {e}")
