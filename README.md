@@ -1,6 +1,13 @@
 # 🤖 JARVIS — Advanced Agentic AI OS
 
 <p align="center">
+    <picture>
+        <img src="\docs\images\LOGO.png" alt="JARVIS" width="500">
+    </picture>
+</p>
+
+
+<p align="center">
   <strong>AT YOUR SERVICE.</strong><br/>
   Multi-Agent • LangGraph • MCP • RAG + Knowledge Graph • Voice UI
 </p>
