@@ -52,8 +52,8 @@ LLM_PROVIDER = "huggingface"
 # -----------------------------------------------------------------------------
 # Embedding model paths
 # -----------------------------------------------------------------------------
-EMBEDDING_BGE_MODEL_PATH = "D:/Agentic AI/models/bge-small"
-EMBEDDING_GTE_MODEL_PATH = "D:/Agentic AI/models/gte-base"
+EMBEDDING_BGE_MODEL_PATH = BASE_DIR / "models" / "bge-small"
+EMBEDDING_GTE_MODEL_PATH = BASE_DIR / "models" / "gte-base"
 
 # -----------------------------------------------------------------------------
 # Token and conversation defaults

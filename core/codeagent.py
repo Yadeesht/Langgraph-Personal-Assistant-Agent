@@ -7,6 +7,7 @@ from utils.helper import setup_logger
 from langchain_core.messages import BaseMessage
 from core.state import TaskSpec
 
+
 logger = setup_logger(__name__)
 
 
@@ -15,7 +16,7 @@ class CodeExecutionAgent:
         """Initialize code agent with LLM client, tool registry, and sandbox path."""
         self.llm = llm_client
         self.tool_sets = tool_sets
-        self.sandbox_path = Path("D:/Agentic AI/core/sandbox")
+        self.sandbox_path = Path(__file__).parent / "sandbox"
         self.sandbox_path.mkdir(exist_ok=True)
 
     async def execute_workflow(self, messages: List[BaseMessage]) -> Dict[str, Any]:

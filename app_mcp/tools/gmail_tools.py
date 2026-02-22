@@ -735,10 +735,6 @@ async def search_by_label(label_id: str) -> dict[str, Any]:
 #         },
 #     }
 #     """
-#     gmail_service = GmailService(
-#         creds_file_path="D:\\Agentic AI\\cred\\client_secret_979296281541-k7n60e6i7kcq1hijr30umufmis1auhgl.apps.googleusercontent.com.json",
-#         token_path="D:\\Agentic AI\\cred\\token.json",
-#     )
 #     create_filter_response = await gmail_service.create_filter(**kwargs)
 #     return create_filter_response
 

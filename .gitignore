@@ -12,6 +12,7 @@
 
 # Log and test files — generated at runtime, no action needed.
 **/result.txt
+**/todo.txt
 **/test/
 **/dummy.txt
 **/log_details.txt
