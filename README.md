@@ -2,7 +2,7 @@
 
 <p align="center">
     <picture>
-        <img src="\docs\images\LOGO.png" alt="JARVIS" width="500">
+        <img src="docs/images/LOGO.png" alt="JARVIS" width="500">
     </picture>
 </p>
 
