@@ -117,34 +117,55 @@ def sanitize_history(messages):
     clean_history = []
 
     for msg in messages:
-        # 1. Handle Human Messages
+        # 1. Handle Human Messages (includes agent reports sent as HumanMessage)
         if isinstance(msg, HumanMessage):
-            clean_history.append({"role": "user", "content": msg.content})
+            entry = {
+                "role": "user",
+                "name": getattr(msg, "name", None) or "human",
+                "content": msg.content[:500] + "..."
+                if isinstance(msg.content, str) and len(msg.content) > 500
+                else msg.content,
+            }
+            clean_history.append(entry)
 
-        # 2. Handle AI Messages (Reasoning + Tool Calls)
+        # 2. Handle AI Messages
         elif isinstance(msg, AIMessage):
+            # msg.name is where the actual agent name is stored
+            agent_name = getattr(msg, "name", None) or msg.additional_kwargs.get(
+                "agent_name", "unknown_agent"
+            )
+            routed_to = msg.additional_kwargs.get("routed_to")
+
             entry = {
                 "role": "assistant",
-                "content": msg.content or "",
-                "agent_name": msg.additional_kwargs.get("agent_name", "default_agent"),
+                "agent": agent_name,
+                "content": msg.content[:500] + "..."
+                if isinstance(msg.content, str) and len(msg.content) > 500
+                else (msg.content or ""),
             }
 
+            if routed_to:
+                entry["routed_to"] = routed_to
+
             if msg.tool_calls:
-                entry["tool_calls"] = []
-                for tool in msg.tool_calls:
-                    entry["tool_calls"].append(
-                        {"name": tool["name"], "args": tool["args"], "id": tool["id"]}
-                    )
+                entry["tool_calls"] = [
+                    {"name": tool["name"], "args": tool["args"]}
+                    for tool in msg.tool_calls
+                ]
 
             clean_history.append(entry)
 
         # 3. Handle Tool Results
         elif isinstance(msg, ToolMessage):
+            result = msg.content
+            if isinstance(result, str) and len(result) > 300:
+                result = result[:300] + "..."
             clean_history.append(
                 {
-                    "role": "tool",
+                    "role": "tool_result",
+                    "tool_name": getattr(msg, "name", None) or msg.tool_call_id,
                     "tool_call_id": msg.tool_call_id,
-                    "result": msg.content,
+                    "result": result,
                 }
             )
 

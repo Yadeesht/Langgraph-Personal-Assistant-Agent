@@ -7,7 +7,7 @@ import time
 import aiosqlite
 from datetime import datetime
 
-from config.settings import DEFAULT_THREAD_ID, MEMORY_DB
+from config.settings import MEMORY_DB
 
 logger = setup_logger(__name__)
 
@@ -34,7 +34,7 @@ class Route(BaseModel):
     step: Literal[
         "communication_agent",
         "planning_agent",
-        "content_agent",
+        "content_supervisor",
         "code_agent",
         "FINISH",
     ] = Field(
@@ -137,7 +137,10 @@ async def route_start(state: State) -> str:
                 if agent_name in [
                     "communication_agent",
                     "planning_agent",
-                    "content_agent",
+                    "content_supervisor",
+                    "document_agent",
+                    "presentation_agent",
+                    "data_agent",
                 ]:
                     return agent_name
 

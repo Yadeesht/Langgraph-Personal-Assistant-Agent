@@ -22,6 +22,7 @@ root = Path(__file__).parent.parent
 sys.path.append(str(root))
 
 from config.settings import MEMORY_DB, DEFAULT_THREAD_ID
+from config.prompts import VOICE_INTERACTION_PROMPT
 from utils.memory_manager import log_event
 
 
@@ -42,21 +43,235 @@ from core.codeagent import CodeExecutionAgent
 logger = setup_logger(__name__)
 
 
-def agent_node_factory(llm_with_tools, system_prompt, agent_name: str):
-    async def agent_node(state: State):
+def supervisor_node_factory(
+    llm_with_tools,
+    system_prompt,
+    agent_name="supervisor",
+):
+    async def supervisor_node(state: State):
+        request_counter[agent_name] += 1
+        request_num = request_counter[agent_name]
 
+        current_time = get_current_time()
+
+        logger.info(f"👮 SUPERVISOR REQUEST #{request_num}")
+
+        logger.info(f"📨 Messages in context: {len(state['messages'])}")
+
+        last_messages = trim_messages(  # fallback if summerizer fails
+            state["messages"],
+            max_tokens=30000,
+            strategy="last",
+            token_counter=count_tokens,
+            include_system=True,
+            start_on="human",
+        )
+
+        logger.info("=" * 80)
+        if last_messages:  # this is for logs purpose only
+            content_preview = sanitize_history(last_messages)
+            content_preview = json.dumps(content_preview[-2:], indent=2)
+            logger.info(f"📝 Content preview: {content_preview}")
+
+        try:
+            summary = state.get("summary", None)
+            if summary:
+                summary_msg = SystemMessage(
+                    content=f"Conversation Summary of previous messages:\n{summary}"
+                )
+                last_messages = [summary_msg] + last_messages
+
+            is_voice = state.get("configurable", {}).get("is_voice", False)
+
+            final_prompt = system_prompt
+
+            if is_voice:
+                final_prompt += VOICE_INTERACTION_PROMPT
+                logger.info("voice prompt added")
+
+            message = [SystemMessage(content=final_prompt)] + last_messages
+            response = await llm_with_tools.ainvoke(message)
+
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 429:
+                logger.error("🚫 Rate limit hit in supervisor - stopping")
+                return {
+                    "next": "FINISH",
+                    "messages": [
+                        AIMessage(
+                            content="[ERROR] Rate limit reached.",
+                            name=agent_name,
+                            additional_kwargs={"timestamp": current_time},
+                        )
+                    ],
+                }
+            logger.error(f"HTTP error in supervisor: {e}")
+            return {
+                "next": "FINISH",
+                "messages": [
+                    AIMessage(
+                        content=f"[ERROR] {e}",
+                        name=agent_name,
+                        additional_kwargs={"timestamp": current_time},
+                    )
+                ],
+            }
+        except httpx.RequestError as e:
+            logger.error(f"🚫 Network error in supervisor: {e}")
+            return {
+                "next": "FINISH",
+                "messages": [
+                    AIMessage(
+                        content="[ERROR] Network unavailable.",
+                        name=agent_name,
+                        additional_kwargs={"timestamp": current_time},
+                    )
+                ],
+            }
+        except Exception as e:
+            logger.error(f"Error in supervisor_node: {e}")
+            return {
+                "next": agent_name,
+                "messages": [
+                    AIMessage(
+                        content=f"[ERROR] {e}",
+                        name=agent_name,
+                        additional_kwargs={"timestamp": current_time},
+                    ),
+                ],
+            }
+
+            # CASE A: The Supervisor wants to use a Tool
+        if response.tool_calls:
+            tool_names = []
+            for i, tool_call in enumerate(response.tool_calls, 1):
+                logger.info(f"   Tool #{i}:")
+                logger.info(f"      Name: {tool_call.get('name', 'N/A')}")
+                logger.info(
+                    f"      Args: {json.dumps(tool_call.get('args', {}), indent=10)}"
+                )
+                tool_names.append(tool_call.get("name", "N/A"))
+
+            agent_message = AIMessage(
+                content=response.content,
+                name=agent_name,
+                tool_calls=getattr(response, "tool_calls", []),
+                additional_kwargs={"timestamp": current_time},
+            )
+
+            try:
+                await log_event(
+                    thread_id=DEFAULT_THREAD_ID,
+                    actor=agent_name,
+                    message=f"{', '.join([format_tool_to_text(tc.get('name', ''), json.dumps(tc.get('args', {}))) for tc in response.tool_calls])}",
+                    metadata={
+                        "routing_decision": "supervisor_tools",
+                        "request_num": request_num,
+                        "type": "tool_call",
+                    },
+                )
+            except Exception as e:
+                logger.error(f"Failed to log supervisor tool audit: {e}")
+
+            return {
+                "next": "supervisor_tools",
+                "messages": [agent_message],
+            }
+
+        # CASE B: The Supervisor outputted Text (Routing JSON or Direct Reply)
+        content = response.content
+        json_match = re.search(r"\{.*\}", content, re.DOTALL)
+
+        if json_match:
+            try:
+                parsed = json.loads(json_match.group(0))
+                next_agent = parsed.get("next")
+                instructions = parsed.get("instructions", "")
+
+                if next_agent:
+                    logger.info(f"📋 Routing to: {next_agent}")
+                    logger.info(f"📝 Instructions: {instructions[:200]}...")
+
+                    agent_message = AIMessage(
+                        content=f"Routing to {next_agent}: {instructions}",
+                        name="supervisor_routing",
+                        additional_kwargs={
+                            "timestamp": current_time,
+                            "routed_to": next_agent,
+                        },
+                    )
+
+                    try:
+                        await log_event(
+                            thread_id=DEFAULT_THREAD_ID,
+                            actor="supervisor_routing",
+                            message=f"Routing to {next_agent}: {instructions}",
+                            metadata={"next_agent": next_agent},
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to log supervisor routing event: {e}")
+
+                    return {
+                        "next": next_agent,
+                        "messages": [agent_message],
+                    }
+
+            except json.JSONDecodeError as e:
+                logger.warning(
+                    f"⚠️ JSON parsing failed, treating as direct response: {e}"
+                )
+            except Exception as e:
+                logger.error(f"❌ Unexpected error parsing routing: {e}")
+
+        # CASE C: The Supervisor decided to answer the user directly
+        # (This includes markdown tables, formatted text, etc.)
+        if response.content:
+            agent_message = AIMessage(
+                content=response.content,
+                name="supervisor",
+                additional_kwargs={"timestamp": current_time},
+            )
+
+            try:
+                await log_event(
+                    thread_id=DEFAULT_THREAD_ID,
+                    actor="supervisor",
+                    message=f"Direct response: {response.content[:500]}",
+                    metadata={},
+                )
+            except Exception as e:
+                logger.error(f"Failed to log supervisor direct response: {e}")
+
+            return {
+                "next": "FINISH",
+                "messages": [agent_message],
+            }
+
+        # CASE D: Fallback - something unexpected happened
+        logger.error("⚠️ Supervisor returned unexpected format")
+        return {
+            "next": "FINISH",
+            "messages": [
+                AIMessage(
+                    content="I apologize, but I encountered an unexpected issue processing your request.",
+                    name="supervisor",
+                    additional_kwargs={"timestamp": current_time},
+                )
+            ],
+        }
+
+    return supervisor_node
+
+
+def sub_supervisor_node_factory(llm, system_prompt, agent_name="content_supervisor"):
+    async def sub_supervisor_node(state: State):
         current_agent_name = agent_name
         request_counter["sub_agents"] += 1
         request_num = request_counter["sub_agents"]
 
         current_time = get_current_time()
 
-        logger.info("\n")
-        logger.info("=" * 80)
-        logger.info(f"🔄 LLM REQUEST #{request_num}")
-        logger.info("=" * 80)
-
-        logger.info(f"📨 Messages in conversation: {len(state['messages'])}")
+        logger.info(f"🔄 {current_agent_name} AGENT REQUEST #{request_num}")
 
         messages = state["messages"]
         filtered_messages = []
@@ -64,7 +279,7 @@ def agent_node_factory(llm_with_tools, system_prompt, agent_name: str):
 
         for msg in reversed(messages):
             if (
-                getattr(msg, "name", "") == "supervisor"
+                getattr(msg, "name", "") == "supervisor_routing"
                 and isinstance(msg, AIMessage)
                 and msg.additional_kwargs.get("routed_to") == current_agent_name
             ):
@@ -96,6 +311,172 @@ def agent_node_factory(llm_with_tools, system_prompt, agent_name: str):
                 last_messages = [summary_msg] + last_messages
         else:
             last_messages = filtered_messages
+
+        logger.info(f"📨 Messages in conversation: {len(filtered_messages)}")
+
+        logger.info("=" * 80)
+        if last_messages:
+            content_preview = sanitize_history(last_messages)
+            content_preview = json.dumps(content_preview, indent=2)
+            logger.info(f"📝 Content preview: {content_preview}")
+
+        logger.info("=" * 80)
+
+        try:
+            messages = [SystemMessage(content=system_prompt)] + last_messages
+            logger.info(
+                f"🤖 Sending messages to LLM with {count_tokens(messages)} tokens"
+            )
+            msg = await llm.ainvoke(messages)
+
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 429:
+                logger.error("🚫 Rate limit hit - stopping execution")
+                return {
+                    "messages": [
+                        AIMessage(
+                            content="[ERROR] Rate limit reached. Please retry later.",
+                            name=current_agent_name,
+                            additional_kwargs={"timestamp": current_time},
+                        )
+                    ]
+                }
+            logger.error(f"HTTP error: {e}")
+            raise
+        except httpx.RequestError as e:
+            logger.error(f"🚫 Network error - no internet connection: {e}")
+            return {
+                "messages": [
+                    AIMessage(
+                        content="[ERROR] Network unavailable. Check connection.",
+                        name=current_agent_name,
+                        additional_kwargs={"timestamp": current_time},
+                    )
+                ]
+            }
+        except Exception as e:
+            logger.error(f"Unexpected error: {e}")
+            raise
+
+        raw_content = msg.content if msg.content else ""
+        final_content = raw_content
+
+        json_match = re.search(r"\{.*\}", final_content, re.DOTALL)
+
+        if json_match:
+            try:
+                parsed = json.loads(json_match.group(0))
+                next_agent = parsed.get("next")
+                instructions = parsed.get("instructions", "")
+
+                if next_agent:
+                    logger.info(f"📋 Routing to: {next_agent}")
+                    logger.info(f"📝 Instructions: {instructions[:200]}...")
+
+                    agent_message = AIMessage(
+                        content=instructions,
+                        name=f"{current_agent_name}_routing",
+                        additional_kwargs={
+                            "timestamp": current_time,
+                            "routed_to": next_agent,
+                        },
+                    )
+
+                    try:
+                        await log_event(
+                            thread_id=DEFAULT_THREAD_ID,
+                            actor=f"{current_agent_name}",
+                            message=f"Routing to {next_agent}: {instructions[:500]}",
+                            metadata={"next_agent": next_agent},
+                        )
+                    except Exception as e:
+                        logger.error(
+                            f"Failed to log {current_agent_name} routing event: {e}"
+                        )
+
+                    return {
+                        "next": next_agent,
+                        "messages": [agent_message],
+                    }
+
+            except json.JSONDecodeError as e:
+                logger.warning(
+                    f"⚠️ JSON parsing failed, treating as direct response: {e}"
+                )
+            except Exception as e:
+                logger.error(f"❌ Unexpected error parsing routing: {e}")
+
+        logger.error("⚠️ content supervisor returned unexpected format")
+        return {
+            "next": "FINISH",
+            "messages": [
+                AIMessage(
+                    content="I apologize, but I encountered an unexpected issue processing your request Maybe format issue."
+                    + f" This was the result from LLM: {final_content}",
+                    name=current_agent_name,
+                    additional_kwargs={"timestamp": current_time},
+                )
+            ],
+        }
+
+    return sub_supervisor_node
+
+
+def agent_node_factory(llm_with_tools, system_prompt, agent_name: str):
+    async def agent_node(state: State):
+
+        current_agent_name = agent_name
+        request_counter["sub_agents"] += 1
+        request_num = request_counter["sub_agents"]
+
+        current_time = get_current_time()
+
+        logger.info("\n")
+        logger.info("=" * 80)
+        logger.info(f"🔄 LLM REQUEST #{request_num}")
+        logger.info("=" * 80)
+
+        messages = state["messages"]
+        filtered_messages = []
+        routing_found = False
+
+        for msg in reversed(messages):
+            if (
+                isinstance(msg, AIMessage)
+                and getattr(msg, "name", "")
+                in ["supervisor_routing", "content_supervisor_routing"]
+                and msg.additional_kwargs.get("routed_to") == current_agent_name
+            ):
+                instruction_msg = HumanMessage(
+                    f"Assigned Task from supervisor:\n{msg.content}"
+                )
+                filtered_messages.insert(0, instruction_msg)
+                routing_found = True
+                break
+            else:
+                filtered_messages.insert(0, msg)
+
+        if not routing_found:  # this is never gonna happen
+            logger.info(
+                "No routing instruction found should never happen i said here it is in my logs so i accept i am dumb 🤣🤣"
+            )
+            last_messages = trim_messages(
+                messages,
+                max_tokens=30000,
+                strategy="last",
+                token_counter=count_tokens,
+                include_system=True,
+                start_on="human",
+            )
+            summary = state.get("summary", None)
+            if summary:
+                logger.info("📝 Including global summary in the prompt.")
+                summary_msg = SystemMessage(content=f"Conversation Summary:\n{summary}")
+                last_messages = [summary_msg] + last_messages
+        else:
+            last_messages = filtered_messages
+
+        logger.info(f"📨 Messages in conversation: {len(filtered_messages)}")
 
         logger.info("=" * 80)
         if last_messages:
