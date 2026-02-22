@@ -2,7 +2,7 @@
 
 <p align="center">
     <picture>
-        <img src="docs/images/LOGO.png" alt="JARVIS" width="500">
+        <img src="https://github.com/Yadeesht/Agentic-AI-EXP/blob/main/docs/images/LOGO.png" alt="JARVIS" width="500">
     </picture>
 </p>
 
@@ -54,7 +54,7 @@ JARVIS is a personal agentic AI operating system built on a distributed **Multi-
 - A virtual environment (`.venv`) activated.
 - API keys for at least one LLM provider (OpenRouter recommended).
 - Google OAuth credentials file (`setup_cred.json`) for Workspace tools.
-- Model folders present in `models/` (already included in this workspace).
+- Model folders present in `models/` (Has TTS, STT and embedding models).
 
 </details>
 
@@ -62,7 +62,7 @@ JARVIS is a personal agentic AI operating system built on a distributed **Multi-
 <summary><strong>Optional but recommended</strong></summary>
 
 - `uv` for fast installation.
-- `honcho` for running multiple MCP servers from `Procfile`.
+- `honcho` for running multiple MCP servers from `Procfile needed when running in terminal.
 - Working microphone + speakers for voice loop.
 
 </details>
@@ -125,6 +125,35 @@ On first use, token files are created under:
 - `app_mcp/cred/gtask_token.json`
 
 > Keep credential and token files private. Never commit real secrets.
+
+---
+
+### 3.3 Local models structure
+
+All models are bundled locally under `models/` — no internet connection required at runtime.
+
+```
+models/
+├── bge-small/              # Embedding model — Knowledge Graph semantic search
+│
+├── gte-base/               # Embedding model — Episodic RAG vector storage
+│
+├── stt/                    # Speech-to-Text — faster-whisper (base.en)
+│   └── models--Systran--faster-whisper-base.en/
+│
+└── tts/                    # Text-to-Speech — Piper TTS (ONNX, high quality)
+    ├── jarvis-high.onnx
+    └── jarvis-high.onnx.json
+```
+
+| Folder | Model | Used for |
+|---|---|---|
+| `bge-small` | BAAI/bge-small-en | Knowledge Graph entity search |
+| `gte-base` | thenlper/gte-base | Episodic RAG chunk embedding |
+| `stt` | Systran/faster-whisper-base.en | Voice input transcription |
+| `tts` | Piper jarvis-high | Spoken response output |
+
+> All four model folders must be present before starting. They are included in this repository.
 
 ---
 
@@ -206,32 +235,55 @@ Use these prompts directly after startup:
 
 ## 7) Architecture overview
 
-JARVIS uses a **Supervisor-first routing model** (turnstile pattern) to avoid tool/context overload.
+<p align="center">
+  <img src="docs/images/agent_structure_graph.png" alt="JARVIS Agent Graph" width="900">
+</p>
 
-```text
-User (Text / Voice via Chainlit)
-               │
-               ▼
-┌───────────────────────────────┐
-│        Main Supervisor        │
-│       (LangGraph Core)        │
-└──────────────┬────────────────┘
-               │
-               ├─ Communication Agent
-               ├─ Planning Agent
-               ├─ Code Execution Sandbox
-               └─ Content Supervisor (Turnstile)
-                         │
-                         ├─ Document Agent (Drive / Docs)
-                         ├─ Data Agent (Sheets / Forms)
-                         └─ Presentation Agent (Slides)
+JARVIS is built around a **stateful LangGraph** where every node is a purposeful participant — not just a tool-caller.
+
+### Entry and routing
+
+- **`__start__`** is the graph entry point. Each incoming message first passes through `route_start`, which decides whether to update memory, summarize the conversation, or proceed directly to the Supervisor.
+- **`supervisor`** is the central decision node. It reads the conversation state and routes to the right domain agent, calls its own tools, or terminates with `FINISH`.
+
+### Domain agents
+
+| Agent | Tools | Handles |
+|---|---|---|
+| `communication_agent` | `communication_tools` | Gmail, Google Chat |
+| `planning_agent` | `planning_tools` | Calendar, Google Tasks |
+| `code_agent` | Docker sandbox | Python code generation + execution |
+| `content_supervisor` → `document_agent` | `document_tools` | Google Drive, Docs |
+| `content_supervisor` → `data_agent` | `data_tools` | Google Sheets, Forms |
+| `content_supervisor` → `presentation_agent` | `presentation_tools` | Google Slides |
+
+Each agent runs autonomously in a loop: call tools → return to supervisor with a `FINAL ANSWER` or `TALK TO USER` signal → route to `__end__`.
+
+### Memory and maintenance nodes
+
+- **`summerizer_node`** — condenses long conversation histories before the token limit is hit; routes back to the supervisor seamlessly.
+- **`memory_update_node`** — triggered at session boundaries or when context grows stale; writes to both the Episodic RAG and the Knowledge Graph, then returns to the supervisor.
+
+### Flow summary
+
+```
+__start__
+    │
+    ├── [memory needed?]  → memory_update_node → supervisor
+    ├── [too long?]       → summerizer_node    → supervisor
+    └── [default]         ──────────────────── → supervisor
+                                                      │
+               ┌──────────────────┬─────────────┬────┴────────────────┐
+               ▼                  ▼             ▼                     ▼
+      communication_agent   planning_agent  code_agent       content_supervisor
+               │                  │                           ┌────┴──────────┐
+        communication_tools planning_tools            data_agent  document_agent  presentation_agent
+               │                  │                      │            │                │
+               └──────────────────┴──────────────────────┴────────────┴────────────────┘
+                                                     __end__
 ```
 
-Memory systems:
-- **Episodic RAG** for temporal conversation recall.
-- **Knowledge Graph (KuzuDB)** for structured entities/relations.
-
-For full internals, see [SYSTEM.md](./SYSTEM.md).
+For full routing logic and state schema, see [SYSTEM.md](./SYSTEM.md).
 
 ---
 
@@ -282,7 +334,6 @@ Key runtime files:
 ## Docs
 
 - System Deep Dive: [SYSTEM.md](./SYSTEM.md)
-- Frontend Notes: [CHAINLIT_FRONTEND.md](./CHAINLIT_FRONTEND.md)
 
 <p align="center">
   <i>"Sometimes you gotta run before you can walk."</i>
