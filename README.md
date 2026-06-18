@@ -1,24 +1,24 @@
-# 🤖 JARVIS — Advanced Agentic AI OS
+# 🤖 Advanced Agentic AI OS (Controls google workspace for you)
 
-<p align="center">
+<!-- <p align="center">
     <picture>
         <img src="https://github.com/Yadeesht/Agentic-AI-EXP/blob/main/docs/images/LOGO.png" alt="JARVIS" width="500">
     </picture>
-</p>
+</p> -->
 
 
 <p align="center">
-  <strong>AT YOUR SERVICE.</strong><br/>
-  Multi-Agent • LangGraph • MCP • RAG + Knowledge Graph
+  <!-- <strong>AT YOUR SERVICE.</strong><br/> -->
+  Multi-Agent • LangGraph • MCP • RAG + Knowledge Graph • Voice UI
 </p>
 
 <p align="center">
   <a href="https://python.org"><img src="https://img.shields.io/badge/Python-3.11+-blue?style=for-the-badge&logo=python&logoColor=white" alt="Python"></a>
-  <a href="https://github.com/Yadeesht/Agentic-AI-EXP"><img src="https://img.shields.io/badge/Repo-Agentic--AI--EXP-181717?style=for-the-badge&logo=github" alt="GitHub Repo"></a>
+  <a href="https://github.com/Yadeesht/Langgraph-Personal-Assistant-Agent"><img src="https://img.shields.io/badge/Repo-Agentic--AI--EXP-181717?style=for-the-badge&logo=github" alt="GitHub Repo"></a>
   <a href="https://github.com/Yadeesht/Agentic-AI-EXP/blob/main/SYSTEM.md"><img src="https://img.shields.io/badge/System-Architecture-6f42c1?style=for-the-badge" alt="System Docs"></a>
 </p>
 
-JARVIS is a personal agentic AI operating system built on a distributed **Multi-Server MCP** architecture and orchestrated with **LangGraph**. It routes tasks across specialized agents, executes code in a sandbox, and supports text and visual interactions through a custom web dashboard.
+This is a personal agentic AI operating system built on a distributed **Multi-Server MCP** architecture and orchestrated with **LangGraph**. It routes tasks across specialized agents, executes code in a sandbox, and supports both text + voice interactions through Chainlit.
 
 ---
 
@@ -207,7 +207,7 @@ Use these prompts directly after startup:
   <img src="docs/images/agent_structure_graph.png" alt="JARVIS Agent Graph" width="900">
 </p>
 
-JARVIS is built around a **stateful LangGraph** where every node is a purposeful participant — not just a tool-caller.
+This ilt around a **stateful LangGraph** where every node is a purposeful participant — not just a tool-caller.
 
 ### Entry and routing
 
