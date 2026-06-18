@@ -12,11 +12,11 @@ from typing import Any
 
 from googleapiclient.errors import HttpError
 
-from app_mcp.auth.service_decoder import get_google_service
-from app_mcp.core.server_init import communication_server
+from app_tools.auth.service_decoder import get_google_service
+from app_tools.core.server_init import communication_server
 from utils.helper import clean_email_body
 
-from app_mcp.helper.pydantic_models import (
+from app_tools.helper.pydantic_models import (
     EmailAddress,
     EmailResponse,
     SendEmailRequest,

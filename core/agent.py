@@ -1,6 +1,5 @@
 import asyncio
 import json
-import re
 import time
 from datetime import datetime
 
@@ -8,13 +7,13 @@ import aiosqlite
 import httpx
 from langchain_core.messages import (
     AIMessage,
-    HumanMessage,
     RemoveMessage,
     SystemMessage,
+    ToolMessage,
     trim_messages,
 )
 
-from config.prompts import HISTORY_SUMMARIZE_PROMPT, VOICE_INTERACTION_PROMPT
+from config.prompts import HISTORY_SUMMARIZE_PROMPT
 from config.settings import DEFAULT_THREAD_ID, MEMORY_DB
 from core.codeagent import CodeExecutionAgent
 from core.llm import build_llm
@@ -28,8 +27,91 @@ from utils.helper import (
     setup_logger,
 )
 from utils.memory_manager import log_event, sanitize_history
+from langgraph.types import Command
+from langchain_core.tools import tool, InjectedToolCallId
+from langgraph.prebuilt import InjectedState
+from typing import Annotated
+from langchain_core.messages import HumanMessage
 
 logger = setup_logger(__name__)
+
+
+def clean_unmatched_tool_calls(messages: list) -> list:
+    """
+    Ensures that any AIMessage with tool_calls is matched by subsequent ToolMessages.
+    If any tool call lacks a corresponding ToolMessage in the rest of the list,
+    the tool_calls are stripped from the AIMessage to avoid OpenAI API BadRequestError.
+    """
+    cleaned_messages = []
+    
+    # Track all tool_call_ids that actually have corresponding ToolMessages in the list
+    existing_tool_message_ids = {
+        msg.tool_call_id for msg in messages if isinstance(msg, ToolMessage)
+    }
+
+    for msg in messages:
+        if isinstance(msg, AIMessage) and msg.tool_calls:
+            # Check if every tool call in this AIMessage has a corresponding ToolMessage
+            matched_calls = []
+            for tc in msg.tool_calls:
+                tc_id = tc.get("id")
+                if tc_id and tc_id in existing_tool_message_ids:
+                    matched_calls.append(tc)
+            
+            if len(matched_calls) == len(msg.tool_calls):
+                # All tool calls are matched, keep as is
+                cleaned_messages.append(msg)
+            elif len(matched_calls) > 0:
+                # Partially matched: keep only the matched ones
+                new_msg = AIMessage(
+                    content=msg.content,
+                    name=msg.name,
+                    id=msg.id,
+                    tool_calls=matched_calls,
+                    additional_kwargs=msg.additional_kwargs.copy() if msg.additional_kwargs else {}
+                )
+                cleaned_messages.append(new_msg)
+            else:
+                # None of the tool calls are matched: strip tool_calls completely
+                new_msg = AIMessage(
+                    content=msg.content,
+                    name=msg.name,
+                    id=msg.id,
+                    additional_kwargs=msg.additional_kwargs.copy() if msg.additional_kwargs else {}
+                )
+                cleaned_messages.append(new_msg)
+        else:
+            cleaned_messages.append(msg)
+
+    return cleaned_messages
+
+
+AGENT_MESSAGE_KEY = {
+    "supervisor": "supervisor_messages",
+    "communication_agent": "communication_messages",
+    "planning_agent": "planning_messages",
+    "document_agent": "document_messages",
+    "presentation_agent": "presentation_messages",
+    "data_agent": "data_messages",
+    "code_agent": "code_messages",
+}
+
+
+def _resolve_agent_messages(state: State, agent_name: str):
+    message_key = AGENT_MESSAGE_KEY.get(agent_name, "messages")
+    agent_messages = state.get(message_key, [])
+    global_messages = state.get("messages", [])
+
+    # During tool loops, ToolNode appends only to state["messages"].
+    if global_messages and isinstance(global_messages[-1], ToolMessage):
+        content = getattr(global_messages[-1], "content", "")
+        if "Successfully routed" in content or "Handoff successful" in content:
+            return agent_messages
+        return global_messages
+
+    return agent_messages or global_messages
+
+
 
 
 def supervisor_node_factory(
@@ -37,11 +119,7 @@ def supervisor_node_factory(
     system_prompt,
     agent_name="supervisor",
 ):
-    """Create the supervisor graph node that routes work or responds directly.
-
-    The returned async node invokes the supervisor LLM, handles tool calls,
-    parses JSON routing output, and falls back to direct user replies.
-    """
+    """Create the supervisor graph node with isolated supervisor context."""
 
     async def supervisor_node(state: State):
         request_counter[agent_name] += 1
@@ -51,10 +129,11 @@ def supervisor_node_factory(
 
         logger.info(f"👮 SUPERVISOR REQUEST #{request_num}")
 
-        logger.info(f"📨 Messages in context: {len(state['messages'])}")
+        scoped_messages = _resolve_agent_messages(state, agent_name)
+        logger.info(f"📨 Messages in supervisor context: {len(scoped_messages)}")
 
-        last_messages = trim_messages(  # fallback if summerizer fails
-            state["messages"],
+        last_messages = trim_messages(
+            scoped_messages,
             max_tokens=30000,
             strategy="last",
             token_counter=count_tokens,
@@ -76,15 +155,10 @@ def supervisor_node_factory(
                 )
                 last_messages = [summary_msg] + last_messages
 
-            is_voice = state.get("configurable", {}).get("is_voice", False)
-
             final_prompt = system_prompt
 
-            if is_voice:
-                final_prompt += VOICE_INTERACTION_PROMPT
-                logger.info("voice prompt added")
-
             message = [SystemMessage(content=final_prompt)] + last_messages
+            message = clean_unmatched_tool_calls(message)
             response = await llm_with_tools.ainvoke(message)
 
         except httpx.HTTPStatusError as e:
@@ -126,7 +200,6 @@ def supervisor_node_factory(
         except Exception as e:
             logger.error(f"Error in supervisor_node: {e}")
             return {
-                "next": agent_name,
                 "messages": [
                     AIMessage(
                         content=f"[ERROR] {e}",
@@ -134,300 +207,64 @@ def supervisor_node_factory(
                         additional_kwargs={"timestamp": current_time},
                     ),
                 ],
+                "supervisor_messages": [
+                    AIMessage(
+                        content=f"[ERROR] {e}",
+                        name=agent_name,
+                        additional_kwargs={"timestamp": current_time},
+                    )
+                ],
+                "current_agent": agent_name,
             }
 
-            # CASE A: The Supervisor wants to use a Tool
-        if response.tool_calls:
-            tool_names = []
-            for i, tool_call in enumerate(response.tool_calls, 1):
-                logger.info(f"   Tool #{i}:")
-                logger.info(f"      Name: {tool_call.get('name', 'N/A')}")
-                logger.info(
-                    f"      Args: {json.dumps(tool_call.get('args', {}), indent=10)}"
-                )
-                tool_names.append(tool_call.get("name", "N/A"))
-
-            agent_message = AIMessage(
-                content=response.content,
-                name=agent_name,
-                tool_calls=getattr(response, "tool_calls", []),
-                additional_kwargs={"timestamp": current_time},
+        for i, tool_call in enumerate(getattr(response, "tool_calls", []), 1):
+            logger.info(f"   Tool #{i}:")
+            logger.info(f"      Name: {tool_call.get('name', 'N/A')}")
+            logger.info(
+                f"      Args: {json.dumps(tool_call.get('args', {}), indent=10)}"
             )
 
-            try:
+        agent_message = AIMessage(
+            content=response.content,
+            name=agent_name,
+            tool_calls=getattr(response, "tool_calls", []),
+            additional_kwargs={"timestamp": current_time},
+        )
+
+        try:
+            has_tools = bool(getattr(response, "tool_calls", []))
+            if has_tools:
                 await log_event(
                     thread_id=DEFAULT_THREAD_ID,
                     actor=agent_name,
                     message=f"{', '.join([format_tool_to_text(tc.get('name', ''), json.dumps(tc.get('args', {}))) for tc in response.tool_calls])}",
-                    metadata={
-                        "routing_decision": "supervisor_tools",
-                        "request_num": request_num,
-                        "type": "tool_call",
-                    },
+                    metadata={"request_num": request_num, "type": "tool_call"},
                 )
-            except Exception as e:
-                logger.error(f"Failed to log supervisor tool audit: {e}")
-
-            return {
-                "next": "supervisor_tools",
-                "messages": [agent_message],
-            }
-
-        # CASE B: The Supervisor outputted Text (Routing JSON or Direct Reply)
-        content = response.content
-        json_match = re.search(r"\{.*\}", content, re.DOTALL)
-
-        if json_match:
-            try:
-                parsed = json.loads(json_match.group(0))
-                next_agent = parsed.get("next")
-                instructions = parsed.get("instructions", "")
-
-                if next_agent:
-                    logger.info(f"📋 Routing to: {next_agent}")
-                    logger.info(f"📝 Instructions: {instructions[:200]}...")
-
-                    agent_message = AIMessage(
-                        content=f"Routing to {next_agent}: {instructions}",
-                        name="supervisor_routing",
-                        additional_kwargs={
-                            "timestamp": current_time,
-                            "routed_to": next_agent,
-                        },
-                    )
-
-                    try:
-                        await log_event(
-                            thread_id=DEFAULT_THREAD_ID,
-                            actor="supervisor_routing",
-                            message=f"Routing to {next_agent}: {instructions}",
-                            metadata={"next_agent": next_agent},
-                        )
-                    except Exception as e:
-                        logger.error(f"Failed to log supervisor routing event: {e}")
-
-                    return {
-                        "next": next_agent,
-                        "messages": [agent_message],
-                    }
-
-            except json.JSONDecodeError as e:
-                logger.warning(
-                    f"⚠️ JSON parsing failed, treating as direct response: {e}"
-                )
-            except Exception as e:
-                logger.error(f"❌ Unexpected error parsing routing: {e}")
-
-        # CASE C: The Supervisor decided to answer the user directly
-        # (This includes markdown tables, formatted text, etc.)
-        if response.content:
-            agent_message = AIMessage(
-                content=response.content,
-                name="supervisor",
-                additional_kwargs={"timestamp": current_time},
-            )
-
-            try:
+            elif response.content:
                 await log_event(
                     thread_id=DEFAULT_THREAD_ID,
-                    actor="supervisor",
+                    actor=agent_name,
                     message=f"Direct response: {response.content[:500]}",
-                    metadata={},
+                    metadata={"request_num": request_num, "type": "content"},
                 )
-            except Exception as e:
-                logger.error(f"Failed to log supervisor direct response: {e}")
+        except Exception as e:
+            logger.error(f"Failed to log supervisor event: {e}")
 
-            return {
-                "next": "FINISH",
-                "messages": [agent_message],
-            }
-
-        # CASE D: Fallback - something unexpected happened
-        logger.error("⚠️ Supervisor returned unexpected format")
         return {
-            "next": "FINISH",
-            "messages": [
-                AIMessage(
-                    content="I apologize, but I encountered an unexpected issue processing your request.",
-                    name="supervisor",
-                    additional_kwargs={"timestamp": current_time},
-                )
-            ],
+            "messages": [agent_message],
+            "supervisor_messages": [agent_message],
+            "current_agent": agent_name,
         }
 
     return supervisor_node
 
 
-def sub_supervisor_node_factory(llm, system_prompt, agent_name="content_supervisor"):
-    """Create the content sub-supervisor node used for internal content routing.
-
-    The returned node reads supervisor instructions, calls the sub-supervisor
-    LLM, and emits routing decisions for document/data/presentation agents.
-    """
-
-    async def sub_supervisor_node(state: State):
-        current_agent_name = agent_name
-        request_counter[current_agent_name] += 1
-        request_num = request_counter[current_agent_name]
-
-        current_time = get_current_time()
-
-        logger.info(f"🔄 {current_agent_name} AGENT REQUEST #{request_num}")
-
-        messages = state["messages"]
-        filtered_messages = []
-        routing_found = False
-
-        for msg in reversed(messages):
-            if (
-                getattr(msg, "name", "") == "supervisor_routing"
-                and isinstance(msg, AIMessage)
-                and msg.additional_kwargs.get("routed_to") == current_agent_name
-            ):
-                instruction_msg = HumanMessage(
-                    f"Assigned Task from supervisor:\n{msg.content}"
-                )
-                filtered_messages.insert(0, instruction_msg)
-                routing_found = True
-                break
-            else:
-                filtered_messages.insert(0, msg)
-
-        if not routing_found:  # this is never gonna happen
-            logger.info(
-                "No routing instruction found should never happen i said here it is in my logs so i accept i am dumb 🤣🤣"
-            )
-            last_messages = trim_messages(
-                messages,
-                max_tokens=30000,
-                strategy="last",
-                token_counter=count_tokens,
-                include_system=True,
-                start_on="human",
-            )
-            summary = state.get("summary", None)
-            if summary:
-                logger.info("📝 Including global summary in the prompt.")
-                summary_msg = SystemMessage(content=f"Conversation Summary:\n{summary}")
-                last_messages = [summary_msg] + last_messages
-        else:
-            last_messages = filtered_messages
-
-        logger.info(f"📨 Messages in conversation: {len(filtered_messages)}")
-
-        logger.info("=" * 80)
-        if last_messages:
-            content_preview = sanitize_history(last_messages)
-            content_preview = json.dumps(content_preview, indent=2)
-            logger.info(f"📝 Content preview: {content_preview}")
-
-        logger.info("=" * 80)
-
-        try:
-            messages = [SystemMessage(content=system_prompt)] + last_messages
-            logger.info(
-                f"🤖 Sending messages to LLM with {count_tokens(messages)} tokens"
-            )
-            msg = await llm.ainvoke(messages)
-
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code == 429:
-                logger.error("🚫 Rate limit hit - stopping execution")
-                return {
-                    "messages": [
-                        AIMessage(
-                            content="[ERROR] Rate limit reached. Please retry later.",
-                            name=current_agent_name,
-                            additional_kwargs={"timestamp": current_time},
-                        )
-                    ]
-                }
-            logger.error(f"HTTP error: {e}")
-            raise
-        except httpx.RequestError as e:
-            logger.error(f"🚫 Network error - no internet connection: {e}")
-            return {
-                "messages": [
-                    AIMessage(
-                        content="[ERROR] Network unavailable. Check connection.",
-                        name=current_agent_name,
-                        additional_kwargs={"timestamp": current_time},
-                    )
-                ]
-            }
-        except Exception as e:
-            logger.error(f"Unexpected error: {e}")
-            raise
-
-        raw_content = msg.content if msg.content else ""
-        final_content = raw_content
-
-        json_match = re.search(r"\{.*\}", final_content, re.DOTALL)
-
-        if json_match:
-            try:
-                parsed = json.loads(json_match.group(0))
-                next_agent = parsed.get("next")
-                instructions = parsed.get("instructions", "")
-
-                if next_agent:
-                    logger.info(f"📋 Routing to: {next_agent}")
-                    logger.info(f"📝 Instructions: {instructions[:200]}...")
-
-                    agent_message = AIMessage(
-                        content=instructions,
-                        name=f"{current_agent_name}_routing",
-                        additional_kwargs={
-                            "timestamp": current_time,
-                            "routed_to": next_agent,
-                        },
-                    )
-
-                    try:
-                        await log_event(
-                            thread_id=DEFAULT_THREAD_ID,
-                            actor=f"{current_agent_name}",
-                            message=f"Routing to {next_agent}: {instructions[:500]}",
-                            metadata={"next_agent": next_agent},
-                        )
-                    except Exception as e:
-                        logger.error(
-                            f"Failed to log {current_agent_name} routing event: {e}"
-                        )
-
-                    return {
-                        "next": next_agent,
-                        "messages": [agent_message],
-                    }
-
-            except json.JSONDecodeError as e:
-                logger.warning(
-                    f"⚠️ JSON parsing failed, treating as direct response: {e}"
-                )
-            except Exception as e:
-                logger.error(f"❌ Unexpected error parsing routing: {e}")
-
-        logger.error("⚠️ content supervisor returned unexpected format")
-        return {
-            "next": "FINISH",
-            "messages": [
-                AIMessage(
-                    content="I apologize, but I encountered an unexpected issue processing your request Maybe format issue."
-                    + f" This was the result from LLM: {final_content}",
-                    name=current_agent_name,
-                    additional_kwargs={"timestamp": current_time},
-                )
-            ],
-        }
-
-    return sub_supervisor_node
 
 
 def agent_node_factory(llm_with_tools, system_prompt, agent_name: str):
     """Create a specialized worker-agent node.
 
-    The returned node consumes routed instructions, invokes the worker LLM with
-    tools, logs outputs, and emits messages back into the graph.
+    The returned node invokes the worker LLM with isolated agent context.
     """
 
     async def agent_node(state: State):
@@ -443,47 +280,17 @@ def agent_node_factory(llm_with_tools, system_prompt, agent_name: str):
         logger.info(f"🔄 {current_agent_name.upper()} REQUEST #{request_num}")
         logger.info("=" * 80)
 
-        messages = state["messages"]
-        filtered_messages = []
-        routing_found = False
+        scoped_messages = _resolve_agent_messages(state, current_agent_name)
+        last_messages = trim_messages(
+            scoped_messages,
+            max_tokens=10000,
+            strategy="last",
+            token_counter=count_tokens,
+            include_system=True,
+            start_on="human",
+        )
 
-        for msg in reversed(messages):
-            if (
-                isinstance(msg, AIMessage)
-                and getattr(msg, "name", "")
-                in ["supervisor_routing", "content_supervisor_routing"]
-                and msg.additional_kwargs.get("routed_to") == current_agent_name
-            ):
-                instruction_msg = HumanMessage(
-                    f"Assigned Task from supervisor:\n{msg.content}"
-                )
-                filtered_messages.insert(0, instruction_msg)
-                routing_found = True
-                break
-            else:
-                filtered_messages.insert(0, msg)
-
-        if not routing_found:  # this is never gonna happen
-            logger.info(
-                "No routing instruction found should never happen i said here it is in my logs so i accept i am dumb 🤣🤣"
-            )
-            last_messages = trim_messages(
-                messages,
-                max_tokens=30000,
-                strategy="last",
-                token_counter=count_tokens,
-                include_system=True,
-                start_on="human",
-            )
-            summary = state.get("summary", None)
-            if summary:
-                logger.info("📝 Including global summary in the prompt.")
-                summary_msg = SystemMessage(content=f"Conversation Summary:\n{summary}")
-                last_messages = [summary_msg] + last_messages
-        else:
-            last_messages = filtered_messages
-
-        logger.info(f"📨 Messages in conversation: {len(filtered_messages)}")
+        logger.info(f"📨 Messages in conversation: {len(last_messages)}")
 
         logger.info("=" * 80)
         if last_messages:
@@ -495,6 +302,7 @@ def agent_node_factory(llm_with_tools, system_prompt, agent_name: str):
 
         try:
             messages = [SystemMessage(content=system_prompt)] + last_messages
+            messages = clean_unmatched_tool_calls(messages)
             logger.info(
                 f"🤖 Sending messages to LLM with {count_tokens(messages)} tokens"
             )
@@ -550,28 +358,12 @@ def agent_node_factory(llm_with_tools, system_prompt, agent_name: str):
 
         logger.info("=" * 80)
 
-        is_report = final_content and (
-            "FINAL ANSWER:" in final_content.upper()
-            or "CLARIFICATION NEEDED:" in final_content.upper()
-            or "TALK TO USER:" in final_content.upper()
+        agent_message = AIMessage(
+            content=final_content,
+            name=current_agent_name,
+            tool_calls=getattr(msg, "tool_calls", []),
+            additional_kwargs={"timestamp": current_time},
         )
-
-        if is_report:
-            agent_message = HumanMessage(
-                content=f"[SYSTEM NOTIFICATION - {current_agent_name.upper()} REPORT]:\n{final_content}",
-                name=current_agent_name,
-            )
-            if (
-                "CLARIFICATION NEEDED:" in final_content.upper()
-                or "TALK TO USER:" in final_content.upper()
-            ):
-                current_agent_name = "Clarification Agent"
-        else:
-            agent_message = AIMessage(
-                content=final_content,
-                name=current_agent_name,
-                tool_calls=getattr(msg, "tool_calls", []),
-            )
         try:
             has_tools = bool(getattr(msg, "tool_calls", []))
             if final_content and not has_tools:
@@ -595,21 +387,12 @@ def agent_node_factory(llm_with_tools, system_prompt, agent_name: str):
         except Exception as e:
             logger.error(f"Failed to log audit event: {e}")
 
-        messages_to_return = [agent_message]
-
-        if final_content and "FINAL ANSWER:" in final_content.upper():
-            cleanup_actions = []
-
-            for m in reversed(state["messages"]):
-                if getattr(m, "name", "") == "supervisor" and isinstance(m, AIMessage):
-                    break
-
-                if m.type in ["tool", "ai"] and m.id:
-                    cleanup_actions.append(RemoveMessage(m.id))
-
-            messages_to_return = cleanup_actions + messages_to_return
-
-        return {"messages": messages_to_return}
+        message_key = AGENT_MESSAGE_KEY.get(current_agent_name, "messages")
+        return {
+            "messages": [agent_message],
+            message_key: [agent_message],
+            "current_agent": current_agent_name,
+        }
 
     return agent_node
 
@@ -622,41 +405,15 @@ def code_execution_factory(llm, tool_sets, agent_name: str):
         current_time = get_current_time()  # system prompt should have this need to do
         current_agent_name = agent_name
 
-        messages = state["messages"]
-        filtered_messages = []
-        routing_found = False
-
-        for msg in reversed(messages):
-            if (
-                getattr(msg, "name", "") == "supervisor"
-                and isinstance(msg, AIMessage)
-                and msg.additional_kwargs("routed_to") == current_agent_name
-            ):
-                instruction_msg = HumanMessage(
-                    f"Assigned Task from supervisor:\n{msg.content}"
-                )
-                filtered_messages.insert(0, instruction_msg)
-                routing_found = True
-                break
-            else:
-                filtered_messages.insert(0, msg)
-
-        if not routing_found:
-            last_messages = trim_messages(
-                messages,
-                max_tokens=30000,
-                strategy="last",
-                token_counter=count_tokens,
-                include_system=True,
-                start_on="human",
-            )
-            summary = state.get("summary", None)
-            if summary:
-                logger.info("📝 Including global summary in the prompt.")
-                summary_msg = SystemMessage(content=f"Conversation Summary:\n{summary}")
-                last_messages = [summary_msg] + last_messages
-        else:
-            last_messages = filtered_messages
+        scoped_messages = _resolve_agent_messages(state, current_agent_name)
+        last_messages = trim_messages(
+            scoped_messages,
+            max_tokens=30000,
+            strategy="last",
+            token_counter=count_tokens,
+            include_system=True,
+            start_on="human",
+        )
 
         try:
             agent = CodeExecutionAgent(llm, tool_sets)
@@ -700,7 +457,11 @@ def code_execution_factory(llm, tool_sets, agent_name: str):
             logger.error(f"Code execution error: {e}")
             raw_content = f"Code execution failed: {str(e)}"
             agent_message = AIMessage(content=raw_content, name=current_agent_name)
-            return {"messages": [agent_message]}
+            return {
+                "messages": [agent_message],
+                "code_messages": [agent_message],
+                "current_agent": current_agent_name,
+            }
 
         # Format result
         raw_content = (
@@ -715,7 +476,11 @@ def code_execution_factory(llm, tool_sets, agent_name: str):
             additional_kwargs={"timestamp": current_time},
         )
 
-        return {"messages": [agent_message]}
+        return {
+            "messages": [agent_message],
+            "code_messages": [agent_message],
+            "current_agent": current_agent_name,
+        }
 
     return code_executor
 
@@ -965,3 +730,111 @@ async def updation_knowledge_graph(
 
     except Exception as e:
         logger.error(f"Knowledge graph update failed: {e}")
+
+
+@tool
+def route_to_agent(
+    tool_call_id: Annotated[str, InjectedToolCallId],
+    agent: str,
+    message: str,
+) -> Command:
+    """
+    Route the conversation to the correct specialized agent.
+
+    The supervisor's ONLY job is to route — do not attempt to perform complex actions
+    yourself. The moment you identify the user's intent, route immediately.
+
+    AGENT DOMAINS:
+    - communication_agent: Gmail, sending emails, checking email, messaging.
+    - planning_agent: Google Calendar, Google Tasks, creating meetings, scheduling.
+    - document_agent: Google Drive, Google Docs, document creation, drive lookup.
+    - data_agent: Google Sheets, Google Forms, spreadsheets, tables.
+    - presentation_agent: Google Slides, presentations.
+    - code_agent: Executing Python code, complex computations, data science sandboxing.
+
+    message: The seed context the worker agent will start with. Describe clearly
+      what the user is asking and provide any relevant parameters already extracted.
+    """
+    supervisor_closure = ToolMessage(
+        content=f"Successfully routed user to {agent}.",
+        tool_call_id=tool_call_id,
+    )
+
+    worker_seed = HumanMessage(
+        content=f"[Supervisor Handoff]: {message}", name="supervisor"
+    )
+
+    agent_key_map = {
+        "communication_agent": "communication_messages",
+        "planning_agent": "planning_messages",
+        "document_agent": "document_messages",
+        "presentation_agent": "presentation_messages",
+        "data_agent": "data_messages",
+        "code_agent": "code_messages",
+    }
+    store_msg = agent_key_map.get(agent, "messages")
+
+    return Command(
+        update={
+            store_msg: [worker_seed],
+            "supervisor_messages": [supervisor_closure],
+            "messages": [
+                ToolMessage(
+                    content=f"Successfully routed user to {agent}.",
+                    tool_call_id=tool_call_id,
+                )
+            ],
+            "current_agent": agent,
+        }
+    )
+
+
+@tool
+def work_completion(
+    state: Annotated[dict, InjectedState],
+    tool_call_id: Annotated[str, InjectedToolCallId],
+    message: str,
+) -> Command:
+    """
+    Call this tool to signal that you have completed your specialized task,
+    need to hand off control back to the supervisor, or require delegation.
+
+    message: A summary of what you did, the final result, and any information or questions 
+      that the supervisor needs to relay back to the user or use for further planning.
+    """
+    current_agent = state.get("current_agent", "supervisor")
+
+    agent_key_map = {
+        "communication_agent": "communication_messages",
+        "planning_agent": "planning_messages",
+        "document_agent": "document_messages",
+        "presentation_agent": "presentation_messages",
+        "data_agent": "data_messages",
+        "code_agent": "code_messages",
+    }
+
+    store_msg = agent_key_map.get(current_agent, "messages")
+
+    worker_closure = ToolMessage(
+        content="Handoff successful. Stop generating and wait for supervisor.",
+        tool_call_id=tool_call_id,
+    )
+
+    supervisor_seed = HumanMessage(
+        content=f"[{current_agent} to supervisor] Handoff. Result: {message}",
+        name=current_agent,
+    )
+
+    return Command(
+        update={
+            store_msg: [worker_closure],
+            "messages": [
+                ToolMessage(
+                    content="Handoff successful. Stop generating and wait for supervisor.",
+                    tool_call_id=tool_call_id,
+                )
+            ],
+            "supervisor_messages": [supervisor_seed],
+            "current_agent": "supervisor",
+        }
+    )

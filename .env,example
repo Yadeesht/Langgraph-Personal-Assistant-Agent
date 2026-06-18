@@ -14,10 +14,10 @@ DEFAULT_THREAD_ID=4
 GOOGLE_PSE_API_KEY= ***
 GOOGLE_PSE_ENGINE_ID= ***
 
-# LLM provider keys. OpenRouter is the primary provider and performs best.
-# Groq and HuggingFace are kept for basic system checks and debugging only.
-# Do not evaluate system performance using those two. The main model is 20B parameters.
+# Azure OpenAI configuration.
+# MODEL_NAME should be your Azure deployment name.
 
-OPENROUTER_API_KEY= ***
-GROQ_API_KEY= ***   
-HF_TOKEN= ***
+AZURE_AI_ENDPOINT= ***
+AZURE_AI_CREDENTIAL= ***
+AZURE_API_VERSION=2024-12-01-preview
+MODEL_NAME= ***

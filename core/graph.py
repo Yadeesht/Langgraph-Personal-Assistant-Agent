@@ -8,7 +8,6 @@ from config.prompts import (
     DOCUMENT_SYSTEM_PROMPT,
     PRESENTATION_SYSTEM_PROMPT,
     DATA_SYSTEM_PROMPT,
-    CONTENT_SUPERVISOR_PROMPT,
 )
 from core.agent import (
     agent_node_factory,
@@ -16,10 +15,22 @@ from core.agent import (
     memory_node_factory,
     summerizer_node,
     supervisor_node_factory,
-    sub_supervisor_node_factory,
+    route_to_agent,
+    work_completion,
+)
+from core.state import (
+    State,
+    internal_agent_route,
+    route_after_supervisor,
+    route_after_supervisor_tools,
+    route_after_communication_tools,
+    route_after_planning_tools,
+    route_after_document_tools,
+    route_after_data_tools,
+    route_after_presentation_tools,
+    route_start,
 )
 from core.llm import build_llm, build_llm_with_tools
-from core.state import State, internal_agent_route, route_after_supervisor, route_start
 from utils.helper import setup_logger
 
 logger = setup_logger(__name__)
@@ -59,10 +70,16 @@ def build_graph(tool_sets, checkpointer):
         f"🔧 Filtered Tools -> Docs: {len(document_tools)} | Data: {len(data_tools)} | Slides: {len(presentation_tools)}"
     )
 
+    supervisor_tools = list(supervisor_tools) + [route_to_agent]
+    communication_tools = list(communication_tools) + [work_completion]
+    planning_tools = list(planning_tools) + [work_completion]
+    document_tools = list(document_tools) + [work_completion]
+    data_tools = list(data_tools) + [work_completion]
+    presentation_tools = list(presentation_tools) + [work_completion]
+
     communication_llm = build_llm_with_tools(communication_tools)
     planning_llm = build_llm_with_tools(planning_tools)
     supervisor_llm = build_llm_with_tools(supervisor_tools)
-    content_llm = build_llm()
     code_agent_llm = build_llm()
     document_agent_llm = build_llm_with_tools(document_tools)
     presentation_agent_llm = build_llm_with_tools(presentation_tools)
@@ -98,12 +115,6 @@ def build_graph(tool_sets, checkpointer):
         agent_name="data_agent",
     )
 
-    content_supervisor_node = sub_supervisor_node_factory(
-        llm=content_llm,
-        system_prompt=CONTENT_SUPERVISOR_PROMPT,
-        agent_name="content_supervisor",
-    )
-
     memory_update_node = memory_node_factory()
 
     supervisor_node = supervisor_node_factory(
@@ -117,7 +128,6 @@ def build_graph(tool_sets, checkpointer):
     builder.add_node("supervisor", supervisor_node)
     builder.add_node("communication_agent", communication_agent_node)
     builder.add_node("planning_agent", planning_agent_node)
-    builder.add_node("content_supervisor", content_supervisor_node)
     builder.add_node("code_agent", code_agent_node)
     builder.add_node("summerizer_node", summerizer_node)
     builder.add_node("document_agent", document_agent_node)
@@ -156,7 +166,6 @@ def build_graph(tool_sets, checkpointer):
         path_map={
             "communication_agent": "communication_agent",
             "planning_agent": "planning_agent",
-            "content_supervisor": "content_supervisor",
             "document_agent": "document_agent",
             "presentation_agent": "presentation_agent",
             "data_agent": "data_agent",
@@ -175,7 +184,9 @@ def build_graph(tool_sets, checkpointer):
         {
             "communication_agent": "communication_agent",
             "planning_agent": "planning_agent",
-            "content_supervisor": "content_supervisor",
+            "document_agent": "document_agent",
+            "presentation_agent": "presentation_agent",
+            "data_agent": "data_agent",
             "code_agent": "code_agent",
             "supervisor_tools": "supervisor_tools",
             "supervisor": "supervisor",  # for tool fail fallback to same node and ask the LLM to re-decide
@@ -183,7 +194,19 @@ def build_graph(tool_sets, checkpointer):
         },
     )
 
-    builder.add_edge("supervisor_tools", "supervisor")
+    builder.add_conditional_edges(
+        "supervisor_tools",
+        route_after_supervisor_tools,
+        {
+            "communication_agent": "communication_agent",
+            "planning_agent": "planning_agent",
+            "document_agent": "document_agent",
+            "presentation_agent": "presentation_agent",
+            "data_agent": "data_agent",
+            "code_agent": "code_agent",
+            "supervisor": "supervisor",
+        },
+    )
 
     builder.add_edge("code_agent", "supervisor")
 
@@ -197,7 +220,14 @@ def build_graph(tool_sets, checkpointer):
         },
     )
 
-    builder.add_edge("communication_tools", "communication_agent")
+    builder.add_conditional_edges(
+        "communication_tools",
+        route_after_communication_tools,
+        {
+            "communication_agent": "communication_agent",
+            "supervisor": "supervisor",
+        },
+    )
 
     builder.add_conditional_edges(
         "planning_agent",
@@ -208,39 +238,60 @@ def build_graph(tool_sets, checkpointer):
             "END": END,
         },
     )
-    builder.add_edge("planning_tools", "planning_agent")
 
     builder.add_conditional_edges(
-        "content_supervisor",
-        route_after_supervisor,
+        "planning_tools",
+        route_after_planning_tools,
         {
-            "document_agent": "document_agent",
-            "presentation_agent": "presentation_agent",
-            "data_agent": "data_agent",
-            "FINISH": END,
-            "END": END,
+            "planning_agent": "planning_agent",
+            "supervisor": "supervisor",
         },
     )
+
     builder.add_conditional_edges(
         "document_agent",
         internal_agent_route,
         {"tools": "document_tools", "supervisor": "supervisor", "END": END},
     )
-    builder.add_edge("document_tools", "document_agent")
+
+    builder.add_conditional_edges(
+        "document_tools",
+        route_after_document_tools,
+        {
+            "document_agent": "document_agent",
+            "supervisor": "supervisor",
+        },
+    )
 
     builder.add_conditional_edges(
         "data_agent",
         internal_agent_route,
         {"tools": "data_tools", "supervisor": "supervisor", "END": END},
     )
-    builder.add_edge("data_tools", "data_agent")
+
+    builder.add_conditional_edges(
+        "data_tools",
+        route_after_data_tools,
+        {
+            "data_agent": "data_agent",
+            "supervisor": "supervisor",
+        },
+    )
 
     builder.add_conditional_edges(
         "presentation_agent",
         internal_agent_route,
         {"tools": "presentation_tools", "supervisor": "supervisor", "END": END},
     )
-    builder.add_edge("presentation_tools", "presentation_agent")
+
+    builder.add_conditional_edges(
+        "presentation_tools",
+        route_after_presentation_tools,
+        {
+            "presentation_agent": "presentation_agent",
+            "supervisor": "supervisor",
+        },
+    )
 
     graph = builder.compile(checkpointer=checkpointer)
     return graph

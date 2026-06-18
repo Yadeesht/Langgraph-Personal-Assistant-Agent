@@ -1,49 +1,29 @@
-from langchain_openai import ChatOpenAI
+from langchain_openai import AzureChatOpenAI
 
 from config.settings import (
-    LLM_PROVIDER,
+    AZURE_AI_CREDENTIAL,
+    AZURE_AI_ENDPOINT,
+    AZURE_API_VERSION,
+    MODEL_NAME,
     MAX_RETRIES,
     REQUEST_TIMEOUT,
-    OPENROUTER_API_KEY,
-    OPENROUTER_BASE_URL,
-    DEFAULT_OPEN_MODEL,
-    GROQ_API_KEY,
-    GROQ_BASE_URL,
-    DEFAULT_GROQ_MODEL,
-    HF_API_KEY,
-    HF_BASE_URL,
-    DEFAULT_HF_MODEL,
 )
 
 
-def _get_provider_config(model: str = None):
-    """Return (api_key, base_url, model) for the configured LLM_PROVIDER."""
-    if LLM_PROVIDER == "groq":
-        return GROQ_API_KEY, GROQ_BASE_URL, model or DEFAULT_GROQ_MODEL
-    if LLM_PROVIDER == "huggingface":
-        return HF_API_KEY, HF_BASE_URL, model or DEFAULT_HF_MODEL
-    # default: openrouter use other 2 for testing the sucess of fallback mechanism not performance they are shit
-    return OPENROUTER_API_KEY, OPENROUTER_BASE_URL, model or DEFAULT_OPEN_MODEL
+def _build_llm(model: str = None):
+    return AzureChatOpenAI(
+        azure_deployment=model or MODEL_NAME,
+        azure_endpoint=AZURE_AI_ENDPOINT,
+        api_key=AZURE_AI_CREDENTIAL,
+        api_version=AZURE_API_VERSION,
+        max_retries=MAX_RETRIES,
+        timeout=REQUEST_TIMEOUT,
+    )
 
 
 def build_llm_with_tools(tools, model: str = None):
-    api_key, base_url, resolved_model = _get_provider_config(model)
-    llm = ChatOpenAI(
-        model=resolved_model,
-        openai_api_key=api_key,
-        openai_api_base=base_url,
-        max_retries=MAX_RETRIES,
-        timeout=REQUEST_TIMEOUT,
-    )
-    return llm.bind_tools(tools)
+    return _build_llm(model).bind_tools(tools)
 
 
 def build_llm(model: str = None):
-    api_key, base_url, resolved_model = _get_provider_config(model)
-    return ChatOpenAI(
-        model=resolved_model,
-        openai_api_key=api_key,
-        openai_api_base=base_url,
-        max_retries=MAX_RETRIES,
-        timeout=REQUEST_TIMEOUT,
-    )
+    return _build_llm(model)

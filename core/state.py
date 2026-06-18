@@ -1,11 +1,14 @@
+import json
+import re
+import time
+from datetime import datetime
 from typing import Annotated, Literal, Optional, List, Dict, Any
+
+import aiosqlite
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
 from utils.helper import setup_logger, count_tokens
-import time
-import aiosqlite
-from datetime import datetime
 
 from config.settings import MEMORY_DB
 
@@ -14,9 +17,17 @@ logger = setup_logger(__name__)
 
 class State(TypedDict):
     messages: Annotated[list, add_messages]
+    supervisor_messages: Annotated[list, add_messages]
+    communication_messages: Annotated[list, add_messages]
+    planning_messages: Annotated[list, add_messages]
+    document_messages: Annotated[list, add_messages]
+    presentation_messages: Annotated[list, add_messages]
+    data_messages: Annotated[list, add_messages]
+    code_messages: Annotated[list, add_messages]
     summary: Optional[str]
     last_memory_timestamp: Optional[float] = 1770195927.8211298  # random time
     next: Optional[str]
+    current_agent: Optional[str]
 
 
 class TaskSpec(BaseModel):
@@ -34,7 +45,9 @@ class Route(BaseModel):
     step: Literal[
         "communication_agent",
         "planning_agent",
-        "content_supervisor",
+        "document_agent",
+        "presentation_agent",
+        "data_agent",
         "code_agent",
         "FINISH",
     ] = Field(
@@ -42,33 +55,98 @@ class Route(BaseModel):
     )
 
 
+def _parse_next_from_json(content: str) -> Optional[str]:
+    if not content or not isinstance(content, str):
+        return None
+
+    json_match = re.search(r"\{.*\}", content, re.DOTALL)
+    if not json_match:
+        return None
+
+    try:
+        parsed = json.loads(json_match.group(0))
+    except json.JSONDecodeError:
+        return None
+
+    next_agent = parsed.get("next")
+    if not isinstance(next_agent, str):
+        return None
+    return next_agent
+
+
 def route_after_supervisor(state: State):
-    return state["next"]
+    supervisor_messages = state.get("supervisor_messages", [])
+    if not supervisor_messages:
+        return "FINISH"
+
+    last_message = supervisor_messages[-1]
+
+    if hasattr(last_message, "tool_calls") and last_message.tool_calls:
+        return "supervisor_tools"
+
+    return "FINISH"
+
+
+def route_after_supervisor_tools(state: State):
+    current = state.get("current_agent", "supervisor")
+    if current in [
+        "communication_agent",
+        "planning_agent",
+        "document_agent",
+        "presentation_agent",
+        "data_agent",
+        "code_agent",
+    ]:
+        return current
+    return "supervisor"
+
+
+def route_after_communication_tools(state: State):
+    return "supervisor" if state.get("current_agent") == "supervisor" else "communication_agent"
+
+
+def route_after_planning_tools(state: State):
+    return "supervisor" if state.get("current_agent") == "supervisor" else "planning_agent"
+
+
+def route_after_document_tools(state: State):
+    return "supervisor" if state.get("current_agent") == "supervisor" else "document_agent"
+
+
+def route_after_data_tools(state: State):
+    return "supervisor" if state.get("current_agent") == "supervisor" else "data_agent"
+
+
+def route_after_presentation_tools(state: State):
+    return "supervisor" if state.get("current_agent") == "supervisor" else "presentation_agent"
 
 
 def internal_agent_route(state: State) -> str:
-    """Route from agent node to tools, supervisor, or human clarification"""
-    last_message = state["messages"][-1]
+    """Route from agent node to tools or END"""
+    current_agent = state.get("current_agent", "")
+    agent_key_map = {
+        "communication_agent": "communication_messages",
+        "planning_agent": "planning_messages",
+        "document_agent": "document_messages",
+        "presentation_agent": "presentation_messages",
+        "data_agent": "data_messages",
+        "code_agent": "code_messages",
+    }
+
+    message_key = agent_key_map.get(current_agent)
+    messages = state.get(message_key, []) if message_key else []
+    if not messages:
+        messages = state.get("messages", [])
+    if not messages:
+        return "END"
+
+    last_message = messages[-1]
 
     if hasattr(last_message, "tool_calls") and last_message.tool_calls:
         logger.info(f"🔧 Agent requesting {len(last_message.tool_calls)} tool(s)")
         return "tools"
 
-    if hasattr(last_message, "content") and isinstance(last_message.content, str):
-        if "FINAL ANSWER:" in last_message.content.upper():
-            logger.info("✅ Detected FINAL ANSWER - returning to supervisor")
-            return "supervisor"
-
-    if hasattr(last_message, "content") and isinstance(last_message.content, str):
-        if "CLARIFICATION NEEDED:" in last_message.content.upper():
-            logger.info("❓ Clarification needed - routing to human")
-            return "END"
-
-        if "TALK TO USER:" in last_message.content.upper():
-            logger.info("💬 Agent wants to talk to user - routing to human")
-            return "END"
-    logger.info("📤 No tools/clarification - returning to supervisor")
-    return "supervisor"
+    return "END"
 
 
 async def route_start(state: State) -> str:
@@ -119,32 +197,20 @@ async def route_start(state: State) -> str:
 
     messages = state["messages"]
 
-    if len(messages) < 2:
-        return "supervisor"
-
-    last_ai_msg = messages[-2]
-
-    if hasattr(last_ai_msg, "content") and isinstance(last_ai_msg.content, str):
-        content_upper = last_ai_msg.content.upper()
-
-        if "CLARIFICATION NEEDED:" in content_upper or "TALK TO USER:" in content_upper:
-            if hasattr(
-                last_ai_msg, "additional_kwargs"
-            ) and last_ai_msg.additional_kwargs.get("name"):
-                agent_name = last_ai_msg.additional_kwargs["name"]
-                logger.info(f"Previous agent identified as: {agent_name}")
-
-                if agent_name in [
-                    "communication_agent",
-                    "planning_agent",
-                    "content_supervisor",
-                    "document_agent",
-                    "presentation_agent",
-                    "data_agent",
-                ]:
-                    return agent_name
-
     if count_tokens(messages) > 8000:
         return "summerizer_node"
+
+    # Direct agent resume or fallback to supervisor
+    current_agent = state.get("current_agent")
+    if current_agent in [
+        "communication_agent",
+        "planning_agent",
+        "document_agent",
+        "presentation_agent",
+        "data_agent",
+        "code_agent",
+    ]:
+        logger.info(f"🔄 Resuming conversation in active agent context: {current_agent}")
+        return current_agent
 
     return "supervisor"

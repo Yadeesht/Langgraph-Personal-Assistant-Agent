@@ -1,1 +1,1 @@
-"""Chainlit frontend package for JARVIS."""
+"""Frontend package for JARVIS."""

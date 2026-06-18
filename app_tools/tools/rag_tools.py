@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 import asyncio
 
-from app_mcp.core.server_init import supervisor_server
+from app_tools.core.server_init import supervisor_server
 from utils.helper import setup_logger
 import logging
 

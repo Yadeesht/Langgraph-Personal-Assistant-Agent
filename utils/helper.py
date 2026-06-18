@@ -231,53 +231,5 @@ def format_tool_to_text(tool_name, tool_args_str):
     return f"__Tool Action__: Used {tool_name} with inputs: {arg_summary}"
 
 
-def clean_text_for_tts(text):
-    if not text:
-        return ""
-
-    # 1. Code Blocks: Don't just remove them, ACKNOWLEDGE them.
-    # Replaces ```...``` with "I have provided the code below."
-    text = re.sub(
-        r"```.*?```",
-        ". I have generated the code/data for you. ",
-        text,
-        flags=re.DOTALL,
-    )
-
-    # 2. Inline Code: Remove backticks but KEEP the text (usually important variable names)
-    # `print()` -> print()
-    text = re.sub(r"`(.*?)`", r" \1 ", text)
-
-    # 3. Headers: Remove Markdown headers (#) but keep text
-    text = re.sub(r"#+\s", " ", text)
-
-    # 4. Bullet Points: The "List Reader"
-    # Converts "- Item" or "* Item" into ". Item"
-    # The period forces the TTS to take a breath between items.
-    text = re.sub(r"^\s*[-*]\s+", ". ", text, flags=re.MULTILINE)
-
-    # 5. The "Minus" Fix:
-    # Replaces " - " (spaced hyphen) with ", " (comma)
-    # Prevents: "Quiz - Feb 26" -> "Quiz minus Feb 26"
-    # Becomes: "Quiz, Feb 26"
-    text = re.sub(r"\s-\s", ", ", text)
-
-    # 6. Remove Markdown formatting (**bold**, __italics__)
-    text = re.sub(r"[\*\#_>~\-]{2,}", "", text)  # Remove **, ##, --
-    text = re.sub(r"(?<!\w)\*|\*(?!\w)", "", text)  # Remove single *
-
-    # 7. Remove Links [Text](URL) -> Text
-    text = re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", text)
-
-    # 8. Clean up extra whitespace
-    text = re.sub(r"\s+", " ", text).strip()
-
-    # 9. Ignore "You" (Start of user turn label)
-    if text.strip() == "You":
-        return ""
-
-    return text
-
-
 if __name__ == "__main__":
     asyncio.run(get_agent_state(DEFAULT_THREAD_ID))

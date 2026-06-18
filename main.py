@@ -3,23 +3,20 @@ import time
 from datetime import datetime
 
 import aiosqlite
+from langchain_core.messages import AIMessage, HumanMessage
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
 from config.settings import (
     CHECKPOINT_DB,
     DEFAULT_THREAD_ID,
     communication_config,
-    content_config,
     planning_config,
+    content_config,
     supervisor_config,
-    VOICE_INPUT_STATUS,
-    VOICE_OUTPUT_STATUS,
 )
 from core.graph import build_graph
-from core.voice_inference import VoiceInference
 from utils.helper import (
     AsyncSqliteSaver,
-    clean_text_for_tts,
     request_counter,
     setup_logger,
 )
@@ -27,8 +24,16 @@ from utils.memory_manager import log_event
 
 logger = setup_logger(__name__)
 
-SESSION_TIMEOUT = 300
-WAKE_WORD = "hey_jarvis"
+
+AGENT_MESSAGE_KEY = {
+    "supervisor": "supervisor_messages",
+    "communication_agent": "communication_messages",
+    "planning_agent": "planning_messages",
+    "document_agent": "document_messages",
+    "presentation_agent": "presentation_messages",
+    "data_agent": "data_messages",
+    "code_agent": "code_messages",
+}
 
 
 async def keyword_listener(queue, loop, agent_state):
@@ -45,30 +50,6 @@ async def keyword_listener(queue, loop, agent_state):
             await asyncio.sleep(1)
 
 
-async def voice_listener(queue, voice_agent, loop, agent_state):
-    while True:
-        try:
-            time_since = time.time() - agent_state["last_interaction"]
-            is_session_active = time_since < SESSION_TIMEOUT
-
-            if not is_session_active:
-                text = await loop.run_in_executor(None, voice_agent.wait_for_wake_word)
-            else:
-                try:
-                    text = await loop.run_in_executor(
-                        None, voice_agent.listen, timeout=SESSION_TIMEOUT - time_since
-                    )
-                except TimeoutError:
-                    continue
-
-            if text.strip():
-                agent_state["last_interaction"] = time.time()
-                await queue.put(("VOICE", text.strip()))
-        except Exception as e:
-            logger.error(f"Error in voice listener: {e}")
-            await asyncio.sleep(1)
-
-
 async def main():
     start_time = datetime.now()
     logger.info("🚀 Starting Agent")
@@ -81,7 +62,6 @@ async def main():
         planning_client = MultiServerMCPClient(planning_config)
         planning_tools = await planning_client.get_tools()
         logger.info(f"✅ Planning Tools: {len(planning_tools)}")
-        tool_sets = {"communication": communication_tools, "planning": planning_tools}
 
         content_client = MultiServerMCPClient(content_config)
         content_tools = await content_client.get_tools()
@@ -112,13 +92,8 @@ async def main():
             config = {
                 "configurable": {
                     "thread_id": DEFAULT_THREAD_ID,
-                    "is_voice": VOICE_INPUT_STATUS,
                 }
             }
-
-            voice = (
-                VoiceInference() if VOICE_INPUT_STATUS or VOICE_OUTPUT_STATUS else None
-            )
 
             agent_state = {"last_interaction": 0}
 
@@ -126,16 +101,12 @@ async def main():
             loop = asyncio.get_running_loop()
 
             asyncio.create_task(keyword_listener(event_queue, loop, agent_state))
-            if VOICE_INPUT_STATUS:
-                asyncio.create_task(
-                    voice_listener(event_queue, voice, loop, agent_state)
-                )
 
-            logger.info("🎤 Say Hey J.A.R.V.I.S or type your message")
+            logger.info("⌨️ Type your message")
             logger.info("💡 Type 'exit' or 'quit' to stop\n")
 
             while True:
-                source, query = await event_queue.get()
+                _, query = await event_queue.get()
 
                 agent_state["last_interaction"] = time.time()
 
@@ -156,21 +127,35 @@ async def main():
                     logger.error(f"Failed to log human_node audit event: {e}")
 
                 request_counter.start_turn(query)
-                state = await graph.ainvoke(
-                    {"messages": [{"role": "user", "content": query}]},
-                    config=config,
+                snapshot = await graph.aget_state(config)
+                current_agent = "supervisor"
+                if snapshot and snapshot.values:
+                    current_agent = snapshot.values.get("current_agent", "supervisor")
+
+                context_key = AGENT_MESSAGE_KEY.get(
+                    current_agent, "supervisor_messages"
                 )
+                human_message = HumanMessage(content=query)
+
+                new_input = {
+                    "messages": [human_message],
+                    context_key: [human_message],
+                }
+
+                state = await graph.ainvoke(new_input, config=config)
                 request_counter.end_turn()
 
-                last_msg = state["messages"][-1]
-                if last_msg.type == "ai" and last_msg.content:
+                active_agent = state.get("current_agent", current_agent)
+                response_key = AGENT_MESSAGE_KEY.get(
+                    active_agent, "supervisor_messages"
+                )
+
+                messages = state.get(response_key) or state.get("messages", [])
+                last_msg = messages[-1] if messages else None
+
+                if isinstance(last_msg, AIMessage) and last_msg.content:
                     final_response = last_msg.content
                     logger.info(f"🤖 Agent: {final_response}")
-
-                    if VOICE_OUTPUT_STATUS and voice:
-                        clean_resp = clean_text_for_tts(final_response)
-                        await loop.run_in_executor(None, voice.speak, clean_resp)
-                        await asyncio.sleep(0.5)
 
                     agent_state["last_interaction"] = time.time()
 

@@ -9,8 +9,8 @@ import os
 from typing import Optional, List, Literal
 from pathlib import Path
 
-from app_mcp.auth.service_decoder import get_google_service
-from app_mcp.core.server_init import supervisor_server
+from app_tools.auth.service_decoder import get_google_service
+from app_tools.core.server_init import supervisor_server
 from utils.helper import setup_logger
 
 logger = setup_logger(__name__)

@@ -15,9 +15,9 @@ from typing import Any, Dict, List, Optional, Union
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-from app_mcp.auth.service_decoder import get_google_service
-from app_mcp.core.server_init import planning_server
-from app_mcp.helper.pydantic_models import (
+from app_tools.auth.service_decoder import get_google_service
+from app_tools.core.server_init import planning_server
+from app_tools.helper.pydantic_models import (
     CalendarInfo,
     ListCalendarsResponse,
     GetEventsRequest,

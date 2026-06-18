@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JARVIS Agent Dashboard</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="dashboard">
+    <!-- Sidebar for Configurations -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <h1>JARVIS <span>v2.1</span></h1>
+      </div>
+      
+      <nav class="sidebar-nav">
+        <button class="nav-tab active" data-tab="tools">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+          Tools Config
+        </button>
+        <button class="nav-tab" data-tab="settings">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          Settings
+        </button>
+      </nav>
+
+      <div class="sidebar-content">
+        <!-- Tools Tab -->
+        <section id="tools-section" class="config-section active">
+          <div class="tool-group">
+            <div class="tool-group-header">📧 Communication Server Tools</div>
+            <div id="comm-tools-list" class="tool-list">
+              <!-- Dynamically populated -->
+            </div>
+          </div>
+          
+          <div class="tool-group">
+            <div class="tool-group-header">✅ Planning Server Tools</div>
+            <div id="planning-tools-list" class="tool-list">
+              <!-- Dynamically populated -->
+            </div>
+          </div>
+          
+          <div class="tool-group">
+            <div class="tool-group-header">📺 Content Server Tools</div>
+            <div id="content-tools-list" class="tool-list">
+              <!-- Dynamically populated -->
+            </div>
+          </div>
+          
+          <div class="tool-group">
+            <div class="tool-group-header">🔍 Supervisor Server Tools</div>
+            <div id="supervisor-tools-list" class="tool-list">
+              <!-- Dynamically populated -->
+            </div>
+          </div>
+          
+          <div class="tool-group">
+            <div id="other-tools-list" class="tool-list">
+              <!-- Fallback -->
+            </div>
+          </div>
+        </section>
+
+        <!-- Settings Tab -->
+        <section id="settings-section" class="config-section">
+          <form class="settings-form" onsubmit="event.preventDefault();">
+            <div class="form-group">
+              <label for="config-model-name">Model Deployment Name</label>
+              <input type="text" id="config-model-name" placeholder="e.g. gpt-4.1-mini">
+            </div>
+            
+            <div class="form-group">
+              <label for="config-default-thread-id">Conversation Thread ID</label>
+              <input type="text" id="config-default-thread-id" placeholder="e.g. default_thread">
+            </div>
+
+            <div class="form-group">
+              <label for="config-voice-select">Text-To-Speech Voice</label>
+              <select id="config-voice-select">
+                <option value="default">Default System Voice</option>
+              </select>
+            </div>
+            
+            <div class="form-group">
+              <label for="config-google-pse-api-key">Google PSE API Key</label>
+              <input type="password" id="config-google-pse-api-key" placeholder="Google PSE API Key">
+            </div>
+
+            <div class="form-group">
+              <label for="config-google-pse-engine-id">Google PSE Engine ID</label>
+              <input type="text" id="config-google-pse-engine-id" placeholder="Google PSE Engine ID">
+            </div>
+
+            <div class="form-group">
+              <label for="config-azure-ai-endpoint">Azure OpenAI Endpoint</label>
+              <input type="text" id="config-azure-ai-endpoint" placeholder="https://...">
+            </div>
+
+            <div class="form-group">
+              <label for="config-azure-ai-credential">Azure OpenAI Credential / Key</label>
+              <input type="password" id="config-azure-ai-credential" placeholder="Azure Key">
+            </div>
+
+            <div class="form-group">
+              <label for="config-azure-api-version">Azure API Version</label>
+              <input type="text" id="config-azure-api-version" placeholder="2024-12-01-preview">
+            </div>
+          </form>
+        </section>
+      </div>
+
+      <div class="sidebar-footer">
+        <button id="save-settings-btn" class="btn-primary">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+          Save Settings & Reload
+        </button>
+      </div>
+    </aside>
+
+    <!-- Main Chat Workspace -->
+    <main class="main-workspace">
+      <header class="topbar">
+        <div class="agent-status">
+          <span class="status-dot"></span>
+          <span class="status-text">JARVIS Agent Online</span>
+        </div>
+      </header>
+
+      <!-- Scrollable Message History -->
+      <div id="chat-container" class="chat-container">
+        <div class="message agent">
+          <div class="message-label">JARVIS</div>
+          <div class="message-bubble">Hello! I am JARVIS, your AI Assistant. I have loaded the active Google Workspace and RAG services. Let me know what you need or toggle voice mode using the circle below.</div>
+        </div>
+      </div>
+
+      <!-- Chat Bottom Input Bar -->
+      <footer class="input-bar">
+        <div class="chat-input-wrapper">
+          <textarea id="chat-input" class="chat-input" placeholder="Type your instruction..."></textarea>
+          <div class="input-actions">
+            <button id="voice-btn" class="btn-icon" title="Toggle voice output (Text-to-Speech)">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+            </button>
+          </div>
+        </div>
+        <button id="send-btn" class="btn-primary btn-send" style="width: auto; height: 48px; padding: 0 24px;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+        </button>
+      </footer>
+
+      <!-- Floating Voice circle widget -->
+      <div class="voice-widget-container">
+        <button id="floating-voice-btn" class="voice-circle" title="Open Real-time Voice Interaction">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg>
+        </button>
+      </div>
+
+      <!-- Fullscreen Voice overlay panel -->
+      <div id="voice-overlay" class="voice-overlay">
+        <button id="close-voice-btn" class="btn-secondary" style="position: absolute; top: 32px; right: 32px; border-radius: 30px;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          Close Voice Mode
+        </button>
+        
+        <div class="voice-avatar-container">
+          <button id="large-voice-circle" class="large-voice-circle">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 48px; height: 48px;"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg>
+          </button>
+          
+          <div class="voice-status-text" id="voice-status-text">Voice Mode Ready</div>
+          <div class="voice-subtext" id="voice-subtext">Click the circle and start speaking.</div>
+          
+          <!-- Waveform visualizer -->
+          <div id="voice-visualizer" class="loader-waves" style="display: none;">
+            <div class="loader-wave"></div>
+            <div class="loader-wave"></div>
+            <div class="loader-wave"></div>
+            <div class="loader-wave"></div>
+            <div class="loader-wave"></div>
+          </div>
+          
+          <div class="voice-actions">
+            <button id="text-toggle-voice-btn" class="btn-secondary">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+              Show Chat Transcript
+            </button>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+  
+  <script src="app.js"></script>
+</body>
+</html>

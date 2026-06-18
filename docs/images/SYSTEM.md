@@ -34,7 +34,7 @@ The routing logic within the graph is dynamic:
 
 JARVIS's functionality is driven by a set of specialized agents, each powered by an LLM and equipped with specific tools and system prompts that define their behavior and capabilities.
 
-*   **Supervisor Agent**: The master orchestrator. It directs traffic to the appropriate sub-agent based on user intent. It also includes built-in knowledge graph and web search tools, which it uses only when explicitly instructed by the user. Its behavior is dynamically adjusted in voice interaction mode for brevity.
+*   **Supervisor Agent**: The master orchestrator. It directs traffic to the appropriate sub-agent based on user intent. It also includes built-in knowledge graph and web search tools, which it uses only when explicitly instructed by the user.
 *   **Communication Agent**: Dedicated to handling all communication tasks, such as sending emails (Gmail), managing Google Chat conversations, and reading messages. It adheres to a strict output format, providing detailed "Task Receipts" for every completed action.
 *   **Planning Agent**: Manages scheduling, reminders, and tasks. It interacts with Google Calendar and Google Tasks APIs to create, modify, or delete events and tasks. Like other agents, it follows a strict output format for clarity.
 *   **Content Agent**: Responsible for managing and generating content across Google Drive, Docs, Sheets, Slides, and Forms. It can search, create, update, and share files, ensuring adherence to specific output formats and detailed "Task Receipts."
@@ -54,7 +54,6 @@ JARVIS implements advanced memory management systems for continuous learning and
 
 JARVIS is packed with a wide range of features that make it a powerful and versatile AI assistant.
 
-*   **Voice Interaction**: JARVIS supports both text and voice interaction. When in voice mode, the system dynamically adjusts its responses to be shorter and more interactive, avoiding information overload, guided by the `VOICE_INTERACTION_PROMPT`.
 *   **Dynamic Code Execution (Sandboxed)**: The Code Agent can dynamically generate Python code based on user requests and execute it safely within an isolated Docker container. This allows JARVIS to perform complex data manipulations, integrate with various APIs programmatically, and automate multi-step workflows.
 *   **Persistent & Contextual Memory**: Through its Episodic RAG and Knowledge Graph, JARVIS learns from every interaction, building a rich, searchable memory of past conversations, entities, and relationships. This enables highly personalized and context-aware responses.
 *   **Advanced Tool Integration**: Each agent is equipped with a specific set of tools (e.g., Google Workspace APIs). The system provides structured methods for the LLMs to understand and utilize these tools effectively.
@@ -63,7 +62,7 @@ JARVIS is packed with a wide range of features that make it a powerful and versa
 
 ## How to Use
 
-Interacting with JARVIS is designed to be simple and intuitive. You can communicate with it using either text input or voice commands. The system intelligently detects your input method and adjusts its responses accordingly.
+Interacting with JARVIS is designed to be simple and intuitive. You can communicate with it using text input.
 
 When making a request, provide clear and specific instructions. The more precise your request, the better JARVIS's Supervisor Agent can route it to the appropriate specialized agent or tool to achieve the desired outcome.
 
