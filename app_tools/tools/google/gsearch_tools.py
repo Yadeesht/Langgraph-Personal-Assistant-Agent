@@ -1,7 +1,7 @@
 """
-Google Custom Search (PSE) MCP Tools
+Google Custom Search (PSE) Tools
 
-This module provides MCP tools for interacting with Google Programmable Search Engine.
+This module provides tools for interacting with Google Programmable Search Engine.
 """
 
 import asyncio
@@ -18,7 +18,7 @@ logger = setup_logger(__name__)
 
 def get_service():
     """Get Gmail service using shared authentication."""
-    base_dir = Path(__file__).parent.parent
+    base_dir = Path(__file__).parent.parent.parent
     token_path = str(base_dir / "cred" / "gsearch_token.json")
     creds_path = str(base_dir / "cred" / "setup_cred.json")
 

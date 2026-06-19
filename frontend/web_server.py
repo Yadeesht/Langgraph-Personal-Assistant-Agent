@@ -17,15 +17,28 @@ root_dir = Path(__file__).resolve().parent.parent
 sys.path.append(str(root_dir))
 
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
-from langchain_mcp_adapters.client import MultiServerMCPClient
+from langchain_core.tools import StructuredTool
 
-from config.settings import (
-    CHECKPOINT_DB,
-    communication_config,
-    planning_config,
-    content_config,
-    supervisor_config,
+from app_tools.core.server_init import (
+    communication_server,
+    planning_server,
+    content_server,
+    supervisor_server,
 )
+
+# Import tools so they register to local registries
+import app_tools.tools.google.gmail_tools
+import app_tools.tools.google.calendar_tools
+import app_tools.tools.google.gdrive_tools
+import app_tools.tools.google.gslide_tools
+import app_tools.tools.google.gsheet_tools
+import app_tools.tools.google.gform_tools
+import app_tools.tools.google.gdocs_tools
+import app_tools.tools.google.gtask_tools
+import app_tools.tools.google.gsearch_tools
+import app_tools.tools.rag_tools
+
+from config.settings import CHECKPOINT_DB
 from core.graph import build_graph
 from utils.helper import AsyncSqliteSaver, request_counter, setup_logger
 from utils.memory_manager import log_event
@@ -36,11 +49,32 @@ logger = setup_logger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: Start runtime in the background
+    # Startup: Start sandbox server on port 9000
+    sandbox_script = root_dir / "core" / "sandbox_server.py"
+    logger.info(f"Starting sandbox server on port 9000: {sandbox_script}")
+    sandbox_process = None
+    try:
+        sandbox_process = await asyncio.create_subprocess_exec(
+            sys.executable,
+            str(sandbox_script),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except Exception as e:
+        logger.error(f"Failed to start sandbox server: {e}")
+
+    # Start runtime in the background
     asyncio.create_task(runtime.initialize())
     yield
     # Shutdown: Close connection and cleanup
     await runtime.close()
+    if sandbox_process:
+        try:
+            sandbox_process.terminate()
+            await sandbox_process.wait()
+            logger.info("Sandbox server stopped.")
+        except Exception as e:
+            logger.error(f"Error stopping sandbox server: {e}")
 
 app = FastAPI(title="JARVIS Agent Dashboard API", lifespan=lifespan)
 
@@ -118,19 +152,18 @@ def save_env_config(new_config: Dict[str, str]):
         logger.error(f"Error writing .env file: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to write .env file: {e}")
 
-# Helper: AST parser to find tools in app_mcp/tools or app_tools/tools
-def parse_mcp_tools() -> List[Dict[str, Any]]:
-    # Search in app_mcp first, fall back to app_tools
-    tools_dir = root_dir / "app_mcp" / "tools"
-    if not tools_dir.exists():
-        tools_dir = root_dir / "app_tools" / "tools"
+# Helper: AST parser to find tools in tools
+def parse_registered_tools() -> List[Dict[str, Any]]:
+    tools_dir = root_dir / "app_tools" / "tools"
         
     if not tools_dir.exists():
-        logger.warning("No tools folder found (checked app_mcp/tools and app_tools/tools)")
+        logger.warning("No tools folder found (checked tools)")
         return []
 
     tools = []
-    for py_file in tools_dir.glob("*.py"):
+    for py_file in tools_dir.rglob("*.py"):
+        if "helper" in py_file.parts:
+            continue
         if py_file.name == "__init__.py" or py_file.name == "workspace_comment_base.py":
             continue
         try:
@@ -181,32 +214,34 @@ def parse_mcp_tools() -> List[Dict[str, Any]]:
             
     return tools
 
-# Unified Runtime class managing MCP Clients and LangGraph
+# Unified Runtime class managing tools and LangGraph
 class AgentRuntime:
     def __init__(self):
         self.graph = None
         self._connection = None
-        self._mcp_clients = {}
         self._cached_tools = {}
+        self.all_tools_map = {}
         self.is_loaded = False
+
+    def _get_langchain_tools(self, server) -> List[StructuredTool]:
+        return server.list_tools()
 
     async def initialize(self):
         logger.info("Initializing Agent Runtime...")
         try:
-            # 1. Start / connect MCP Clients and cache tools list
-            self._mcp_clients["communication"] = MultiServerMCPClient(communication_config)
-            self._cached_tools["communication"] = await self._mcp_clients["communication"].get_tools()
-
-            self._mcp_clients["planning"] = MultiServerMCPClient(planning_config)
-            self._cached_tools["planning"] = await self._mcp_clients["planning"].get_tools()
-
-            self._mcp_clients["content"] = MultiServerMCPClient(content_config)
-            self._cached_tools["content"] = await self._mcp_clients["content"].get_tools()
-
-            self._mcp_clients["supervisor"] = MultiServerMCPClient(supervisor_config)
-            self._cached_tools["supervisor"] = await self._mcp_clients["supervisor"].get_tools()
+            # 1. Retrieve and convert tools in-process
+            self._cached_tools["communication"] = self._get_langchain_tools(communication_server)
+            self._cached_tools["planning"] = self._get_langchain_tools(planning_server)
+            self._cached_tools["content"] = self._get_langchain_tools(content_server)
+            self._cached_tools["supervisor"] = self._get_langchain_tools(supervisor_server)
             
-            # 2. Compile the Graph
+            # 2. Cache flat tools map
+            self.all_tools_map = {}
+            for category, tools in self._cached_tools.items():
+                for t in tools:
+                    self.all_tools_map[t.name] = t
+            
+            # 3. Compile the Graph
             await self.compile_graph()
             self.is_loaded = True
             logger.info("Agent Runtime initialized successfully.")
@@ -222,7 +257,13 @@ class AgentRuntime:
         # Filter tool sets
         tool_sets = {}
         for key, tools in self._cached_tools.items():
-            filtered = [t for t in tools if enabled_map.get(t.name, True)]
+            ui_category = key.capitalize()
+            category_enabled = enabled_map.get(key, True) and enabled_map.get(ui_category, True)
+            
+            filtered = []
+            for t in tools:
+                if category_enabled and enabled_map.get(t.name, True):
+                    filtered.append(t)
             tool_sets[key] = filtered
             logger.info(f"Loaded {len(filtered)} / {len(tools)} tools for server: {key}")
 
@@ -353,16 +394,25 @@ class AgentRuntime:
 
     async def close(self):
         if self._connection is not None:
-            await self._connection.close()
-            
-        for client in self._mcp_clients.values():
             try:
-                if hasattr(client, "close"):
-                    await client.close()
-                elif hasattr(client, "disconnect"):
-                    await client.disconnect()
+                await self._connection.close()
             except Exception as e:
-                logger.error(f"Error closing MCP client: {e}")
+                logger.error(f"Error closing DB connection: {e}")
+            self._connection = None
+            
+        self._cached_tools = {}
+        self.all_tools_map = {}
+
+    async def reload(self):
+        logger.info("Reloading Agent Runtime (in-process tools refresh)...")
+        try:
+            self.is_loaded = False
+            await self.close()
+            await self.initialize()
+            logger.info("Agent Runtime reloaded successfully.")
+        except Exception as e:
+            logger.exception(f"Error during Agent Runtime reload: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to reload agent: {e}")
 
 # Global Runtime Instance
 runtime = AgentRuntime()
@@ -382,14 +432,22 @@ class ConfigUpdateRequest(BaseModel):
 # API Endpoints
 @app.get("/api/tools")
 def get_tools():
-    all_tools = parse_mcp_tools()
+    all_tools = parse_registered_tools()
     enabled_config = load_enabled_tools_config()
     
     # Map enabled state
     for t in all_tools:
         t["enabled"] = enabled_config.get(t["name"], True)
         
-    return {"tools": all_tools}
+    # Map category enabled states
+    categories = {
+        "Communication": enabled_config.get("Communication", True),
+        "Planning": enabled_config.get("Planning", True),
+        "Content": enabled_config.get("Content", True),
+        "Supervisor": enabled_config.get("Supervisor", True)
+    }
+        
+    return {"tools": all_tools, "categories": categories}
 
 @app.post("/api/tools/toggle")
 def toggle_tool(req: ToolToggleRequest):
@@ -412,8 +470,33 @@ def update_config(req: ConfigUpdateRequest):
 async def reload_agent():
     if not runtime.is_loaded:
         raise HTTPException(status_code=503, detail="Agent runtime is not loaded yet.")
-    await runtime.compile_graph()
+    await runtime.reload()
     return {"status": "ok"}
+
+class SandboxToolExecutionRequest(BaseModel):
+    tool_name: str
+    arguments: Dict[str, Any]
+
+@app.post("/api/sandbox/execute_tool")
+async def sandbox_execute_tool(req: SandboxToolExecutionRequest):
+    if not runtime.is_loaded:
+        raise HTTPException(status_code=503, detail="Agent runtime is not fully initialized.")
+        
+    tool = getattr(runtime, "all_tools_map", {}).get(req.tool_name)
+    if not tool:
+        raise HTTPException(status_code=404, detail=f"Tool {req.tool_name} not found")
+        
+    try:
+        result = await tool.ainvoke(req.arguments)
+        if isinstance(result, str):
+            try:
+                return json.loads(result)
+            except json.JSONDecodeError:
+                return {"success": True, "data": result}
+        return result
+    except Exception as e:
+        logger.error(f"Sandbox tool execution failed: {e}")
+        return {"success": False, "error": str(e)}
 
 @app.post("/api/chat")
 async def chat_endpoint(req: ChatRequest):

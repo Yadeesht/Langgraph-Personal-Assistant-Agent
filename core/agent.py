@@ -99,17 +99,7 @@ AGENT_MESSAGE_KEY = {
 
 def _resolve_agent_messages(state: State, agent_name: str):
     message_key = AGENT_MESSAGE_KEY.get(agent_name, "messages")
-    agent_messages = state.get(message_key, [])
-    global_messages = state.get("messages", [])
-
-    # During tool loops, ToolNode appends only to state["messages"].
-    if global_messages and isinstance(global_messages[-1], ToolMessage):
-        content = getattr(global_messages[-1], "content", "")
-        if "Successfully routed" in content or "Handoff successful" in content:
-            return agent_messages
-        return global_messages
-
-    return agent_messages or global_messages
+    return state.get(message_key, []) or state.get("messages", [])
 
 
 
@@ -398,91 +388,140 @@ def agent_node_factory(llm_with_tools, system_prompt, agent_name: str):
 
 
 def code_execution_factory(llm, tool_sets, agent_name: str):
-    """Create the code execution node that runs CodeExecutionAgent workflows."""
+    """Create the code execution node that runs CodeExecutionAgent workflows with user permission checks and local Port 9000 sandbox."""
 
     async def code_executor(state: State):
-        """Execute one code-agent turn and return summarized execution output."""
-        current_time = get_current_time()  # system prompt should have this need to do
+        """Execute one code-agent turn and return code or execution output depending on approval state."""
+        import re
+        current_time = get_current_time()
         current_agent_name = agent_name
 
         scoped_messages = _resolve_agent_messages(state, current_agent_name)
-        last_messages = trim_messages(
-            scoped_messages,
-            max_tokens=30000,
-            strategy="last",
-            token_counter=count_tokens,
-            include_system=True,
-            start_on="human",
-        )
+        
+        # Check if the user is approving a previously generated code block
+        is_approved = False
+        code_to_run = None
+        
+        last_msg = scoped_messages[-1] if scoped_messages else None
+        if last_msg and last_msg.type == "human":
+            content_lower = (last_msg.content or "").strip().lower()
+            if content_lower in ["approve", "yes", "run", "ok", "run it"]:
+                # Traverse backward to find the last AI message with python code
+                for msg in reversed(scoped_messages):
+                    if msg.type == "ai" and "```python" in msg.content:
+                        match = re.search(r"```python\n(.*?)\n```", msg.content, re.DOTALL)
+                        if match:
+                            code_to_run = match.group(1)
+                            is_approved = True
+                            break
 
-        try:
-            agent = CodeExecutionAgent(llm, tool_sets)
-
+        if is_approved and code_to_run:
+            logger.info("Code execution approved by user! Running...")
             try:
-                loop = asyncio.get_event_loop()
-            except RuntimeError:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-
-            msg = loop.run_until_complete(agent.execute_workflow(last_messages))
-            if msg and hasattr(msg, "status") and msg.status == "sucess":
-                try:
-                    generated_code = msg.get("generated_code", "")
-                    task_goal = msg.get("task_goal", "Unknown Goal")
-
-                    if generated_code:
-                        await log_event(
-                            thread_id=DEFAULT_THREAD_ID,
-                            actor="code_agent",
-                            message=f"PLAN: {task_goal}\n\nEXECUTED CODE:\n```python\n{generated_code}\n```",
-                            metadata={
-                                "type": "code_execution",
-                            },
-                        )
-
-                    execution_summary = msg.get("summary", "No summary provided")
-                    execution_details = json.dumps(msg.get("details", {}), indent=2)
-
+                agent = CodeExecutionAgent(llm, tool_sets)
+                # Parse intent from prior messages (exclude the latest 'approve' human message)
+                task_spec = await agent._resolve_intent(scoped_messages[:-1])
+                tool_map = agent._create_tool_map(task_spec.required_tools_hint)
+                
+                # Execute in the sacrificial Python sandbox server
+                msg = await agent._execute_in_sandbox(code_to_run, tool_map)
+                
+                if msg.get("status") == "success":
+                    summary = msg.get("summary", "Code executed successfully.")
+                    full_output = json.dumps(msg.get("full_output", {}), indent=2)
+                    
                     await log_event(
                         thread_id=DEFAULT_THREAD_ID,
                         actor="code_agent",
-                        message=f"EXECUTION RESULT:\nStatus: {msg.get('status')}\nSummary: {execution_summary}\nDetails: {execution_details}",
-                        metadata={"type": "code_output", "status": msg.get("status")},
+                        message=f"PLAN: {task_spec.primary_goal}\n\nEXECUTED CODE:\n```python\n{code_to_run}\n```",
+                        metadata={"type": "code_execution"}
                     )
-
-                except Exception as log_error:
-                    logger.error(f"Failed to log code execution event: {log_error}")
-
-        except Exception as e:
-            logger.error(f"Code execution error: {e}")
-            raw_content = f"Code execution failed: {str(e)}"
-            agent_message = AIMessage(content=raw_content, name=current_agent_name)
-            return {
-                "messages": [agent_message],
-                "code_messages": [agent_message],
-                "current_agent": current_agent_name,
-            }
-
-        # Format result
-        raw_content = (
-            f"Status: {msg.get('status', 'unknown')}\n"
-            f"Summary: {msg.get('summary', 'No summary')}\n"
-        )
-
-        final_content = raw_content
-        agent_message = AIMessage(
-            content=final_content,
-            name=current_agent_name,
-            additional_kwargs={"timestamp": current_time},
-        )
-
-        return {
-            "messages": [agent_message],
-            "code_messages": [agent_message],
-            "current_agent": current_agent_name,
-        }
+                    await log_event(
+                        thread_id=DEFAULT_THREAD_ID,
+                        actor="code_agent",
+                        message=f"EXECUTION RESULT:\nStatus: success\nSummary: {summary}\nDetails: {full_output}",
+                        metadata={"type": "code_output", "status": "success"}
+                    )
+                    
+                    response_text = f"Code execution completed successfully.\n\n**Summary**:\n{summary}\n\n**Output details**:\n```json\n{full_output}\n```"
+                else:
+                    error_msg = msg.get("error", "Unknown sandbox error")
+                    response_text = f"Code execution failed with error:\n\n```\n{error_msg}\n```"
+                    
+                agent_message = AIMessage(
+                    content=response_text,
+                    name=current_agent_name,
+                    additional_kwargs={"timestamp": current_time}
+                )
+                
+                return {
+                    "messages": [agent_message],
+                    "code_messages": [agent_message],
+                    "current_agent": "supervisor" # Handoff back to supervisor
+                }
+            except Exception as e:
+                logger.error(f"Error running approved code: {e}")
+                err_msg = AIMessage(content=f"Error executing code: {str(e)}", name=current_agent_name)
+                return {
+                    "messages": [err_msg],
+                    "code_messages": [err_msg],
+                    "current_agent": "supervisor"
+                }
+        else:
+            # Generate the Python code first and request user approval
+            logger.info("Generating code and requesting user approval...")
+            try:
+                agent = CodeExecutionAgent(llm, tool_sets)
+                last_messages = trim_messages(
+                    scoped_messages,
+                    max_tokens=30000,
+                    strategy="last",
+                    token_counter=count_tokens,
+                    include_system=True,
+                    start_on="human",
+                )
+                task_spec = await agent._resolve_intent(last_messages)
+                
+                if not task_spec.required_tools_hint and not task_spec.primary_goal:
+                    err_msg = AIMessage(content="Could not parse intent for code execution.", name=current_agent_name)
+                    return {
+                        "messages": [err_msg],
+                        "code_messages": [err_msg],
+                        "current_agent": "supervisor"
+                    }
+                    
+                tool_schemas = await agent._load_tool_schemas(task_spec.required_tools_hint)
+                code_prompt = agent._build_code_generation_prompt(task_spec, tool_schemas)
+                generated_code = await agent._generate_code(code_prompt)
+                
+                approval_request = (
+                    f"I have generated the following Python code to address your request:\n\n"
+                    f"```python\n{generated_code}\n```\n\n"
+                    f"**Please review the code and reply with 'approve' to execute it.**"
+                )
+                
+                agent_message = AIMessage(
+                    content=approval_request,
+                    name=current_agent_name,
+                    additional_kwargs={"timestamp": current_time}
+                )
+                
+                return {
+                    "messages": [agent_message],
+                    "code_messages": [agent_message],
+                    "current_agent": current_agent_name # Retain context so the approval is routed directly back
+                }
+            except Exception as e:
+                logger.error(f"Error generating code: {e}")
+                err_msg = AIMessage(content=f"Error generating code: {str(e)}", name=current_agent_name)
+                return {
+                    "messages": [err_msg],
+                    "code_messages": [err_msg],
+                    "current_agent": "supervisor"
+                }
 
     return code_executor
+
 
 
 async def summerizer_node(state: State):
@@ -755,6 +794,38 @@ def route_to_agent(
     message: The seed context the worker agent will start with. Describe clearly
       what the user is asking and provide any relevant parameters already extracted.
     """
+    if agent == "code_agent":
+        import json
+        from pathlib import Path
+        enabled_tools_file = Path(__file__).resolve().parent.parent / "data" / "enabled_tools.json"
+        is_enabled = True
+        if enabled_tools_file.exists():
+            try:
+                with open(enabled_tools_file, "r") as f:
+                    config = json.load(f)
+                    is_enabled = config.get("code_agent", True)
+            except Exception:
+                pass
+                
+        if not is_enabled:
+            logger.warning("Attempted to route to code_agent but it is disabled by user.")
+            return Command(
+                update={
+                    "supervisor_messages": [
+                        ToolMessage(
+                            content="Error: code_agent is currently disabled by user settings. Please perform the task using other agents (e.g. data_agent, document_agent) or explain directly.",
+                            tool_call_id=tool_call_id,
+                        )
+                    ],
+                    "messages": [
+                        ToolMessage(
+                            content="Error: code_agent is currently disabled by user settings.",
+                            tool_call_id=tool_call_id,
+                        )
+                    ],
+                    "current_agent": "supervisor",
+                }
+            )
     supervisor_closure = ToolMessage(
         content=f"Successfully routed user to {agent}.",
         tool_call_id=tool_call_id,

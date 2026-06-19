@@ -1,7 +1,0 @@
-# Procfile for running multiple servers in parallel using a process manager like Foreman or Honcho. 
-# Each line defines a server process with a name and the command to run it.
-
-server1: python app_tools/core/communication_server.py
-server2: python app_tools/core/planning_server.py
-server3: python app_tools/core/content_server.py
-server4: python app_tools/core/supervisor_server.py

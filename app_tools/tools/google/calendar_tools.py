@@ -1,7 +1,7 @@
 """
-Google Calendar MCP Tools
+Google Calendar Tools
 
-This module provides MCP tools for interacting with Google Calendar API.
+This module provides tools for interacting with Google Calendar API.
 """
 
 import asyncio
@@ -39,7 +39,7 @@ logger = setup_logger(__name__)
 def get_service():
     """Get or create Calendar service with proper authentication"""
     try:
-        base_dir = Path(__file__).parent.parent
+        base_dir = Path(__file__).parent.parent.parent
         token_path = str(base_dir / "cred" / "calendar_token.json")
         creds_path = str(base_dir / "cred" / "setup_cred.json")
 

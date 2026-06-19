@@ -113,55 +113,7 @@ class CodeExecutionAgent:
         logger.info(f"🔧 Created tool map with {len(tool_map)} tools")
         return tool_map
 
-    async def _execute_locally(
-        self, code: str, tool_map: Dict[str, Callable]
-    ) -> Dict[str, Any]:
-        global_scope = {
-            "Dict": Dict,
-            "Any": Any,
-            "List": List,
-            "asyncio": asyncio,
-            **tool_map,
-        }
 
-        try:
-            logger.info("⚡ Running code...")
-            exec(code, global_scope)
-
-            if "execute_workflow" not in global_scope:
-                return {
-                    "status": "error",
-                    "error": "Function 'execute_workflow' missing in generated code",
-                    "summary": "Code generation failed",
-                }
-
-            func = global_scope["execute_workflow"]
-
-            if asyncio.iscoroutinefunction(func):
-                result = await func()
-            else:
-                logger.warning("execute_workflow is not async, running synchronously")
-                result = func()
-
-            if not isinstance(result, dict):
-                return {
-                    "status": "error",
-                    "error": f"execute_workflow returned {type(result)}, expected dict",
-                    "summary": "Invalid return type",
-                }
-
-            if "status" not in result:
-                result["status"] = "success"
-
-            return result
-
-        except Exception as e:
-            logger.error(f"Execution error: {e}", exc_info=True)
-            return {
-                "status": "error",
-                "error": str(e),
-                "summary": f"Execution failed: {str(e)[:100]}",
-            }
 
     async def _resolve_intent(self, messages: List[BaseMessage]) -> TaskSpec:
         system_prompt = """
@@ -318,7 +270,7 @@ class CodeExecutionAgent:
 
         Requirements:
         1. You CANNOT use `input()` or interactive commands.
-        2. You MUST use the provided MCP tools for external actions.
+        2. You MUST use the provided tools for external actions.
         3. ALL TOOL CALLS MUST BE AWAITED: `result = await tool_name(**params)`
         4. ALWAYS CHECK FOR ERRORS in tool results before processing.
         5. Return a dictionary with 'summary', 'details', 'artifacts'.
@@ -378,53 +330,115 @@ class CodeExecutionAgent:
         logger.info(f"Generated code:\n{code}")
         return code
 
-    async def _execute_in_sandbox(self, code: str) -> Dict[str, Any]:
-        """Execute in Docker container for safety"""
-        try:
-            process = await asyncio.create_subprocess_exec(
-                "docker",
-                "run",
-                "--rm",
-                "-i",
-                "--memory=512m",
-                "--cpus=1",
-                "--network=none",
-                "python-sandbox",
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+    async def _ensure_sandbox_server_running(self):
+        import socket
+        def is_port_open(port: int) -> bool:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                return s.connect_ex(('127.0.0.1', port)) == 0
+                
+        if not is_port_open(9000):
+            logger.info("Sandbox server not running on port 9000. Spawning it...")
+            sandbox_script = Path(__file__).resolve().parent / "sandbox_server.py"
+            import sys
+            import subprocess
+            subprocess.Popen(
+                [sys.executable, str(sandbox_script)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                close_fds=True
             )
+            await asyncio.sleep(1.0)
 
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(code.encode()), timeout=300
+    def _prepend_tool_wrappers(self, code: str, tool_map: Dict[str, Callable]) -> str:
+        if not tool_map:
+            return code
+            
+        wrappers = [
+            "import httpx",
+            "import asyncio",
+            "from typing import Dict, Any, List",
+            ""
+        ]
+        
+        for tool_name in tool_map.keys():
+            wrapper_func = f"""
+async def {tool_name}(**kwargs):
+    try:
+        with httpx.Client() as client:
+            r = client.post(
+                "http://127.0.0.1:8080/api/sandbox/execute_tool",
+                json={{"tool_name": "{tool_name}", "arguments": kwargs}},
+                timeout=30.0
             )
-
-            if process.returncode == 0:
-                import json
-
-                result = json.loads(stdout.decode())
-                return {
-                    "status": "success",
-                    "summary": result.get("summary", "Completed"),
-                    "full_output": result,
-                }
+            if r.status_code == 200:
+                res = r.json()
+                if isinstance(res, dict) and "error" in res and not res.get("success", True):
+                    return res
+                return res
             else:
-                error_msg = stderr.decode()
-                logger.error(f"Execution failed: {error_msg}")
+                return {{"error": f"Tool HTTP error: {{r.status_code}}", "success": False}}
+    except Exception as e:
+        return {{"error": f"Tool connection failed: {{str(e)}}", "success": False}}
+"""
+            wrappers.append(wrapper_func)
+            
+        return "\n".join(wrappers) + "\n\n" + code
+
+    async def _execute_in_sandbox(self, code: str, tool_map: Dict[str, Callable] = None) -> Dict[str, Any]:
+        """Execute in local Python Code Sandbox Server on Port 9000"""
+        import httpx
+        await self._ensure_sandbox_server_running()
+        
+        full_code = self._prepend_tool_wrappers(code, tool_map)
+        
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    "http://127.0.0.1:9000/execute",
+                    json={"code": full_code},
+                    timeout=35.0
+                )
+                
+            if response.status_code == 200:
+                res = response.json()
+                if res.get("status") == "success":
+                    stdout = res.get("stdout", "").strip()
+                    try:
+                        json_match = re.search(r"\{.*\}", stdout, re.DOTALL)
+                        if json_match:
+                            result = json.loads(json_match.group(0))
+                        else:
+                            result = json.loads(stdout)
+                            
+                        return {
+                            "status": "success",
+                            "summary": result.get("summary", "Completed"),
+                            "full_output": result,
+                        }
+                    except Exception as parse_error:
+                        logger.error(f"Failed to parse stdout as JSON: {stdout}. Error: {parse_error}")
+                        return {
+                            "status": "success",
+                            "summary": f"Completed (unstructured output): {stdout[:200]}",
+                            "full_output": {"stdout": stdout},
+                        }
+                else:
+                    error_msg = res.get("stderr", "") or res.get("stdout", "")
+                    logger.error(f"Execution failed: {error_msg}")
+                    return {
+                        "status": "error",
+                        "error": error_msg,
+                        "summary": f"Failed: {error_msg[:200]}",
+                    }
+            else:
                 return {
                     "status": "error",
-                    "error": error_msg,
-                    "summary": f"Failed: {error_msg[:200]}",
+                    "error": f"Sandbox server returned status code {response.status_code}",
+                    "summary": "Sandbox server error",
                 }
-
-        except asyncio.TimeoutError:
-            return {
-                "status": "error",
-                "error": "Execution timeout (5 min)",
-                "summary": "Task took too long",
-            }
+                
         except Exception as e:
-            logger.error(f"Docker execution error: {e}")
+            logger.error(f"Sandbox communication error: {e}")
             return {
                 "status": "error",
                 "error": str(e),

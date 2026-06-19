@@ -1,7 +1,8 @@
+from pathlib import Path
 """
-Google Chat MCP Tools
+Google Chat Tools
 
-This module provides MCP tools for interacting with Google Chat API.
+This module provides tools for interacting with Google Chat API.
 """
 
 import asyncio
@@ -33,7 +34,7 @@ logger = setup_logger(__name__)
 # auth
 def get_service():
     """Get Gmail service using shared auth"""
-    base_dir = Path(__file__).parent.parent
+    base_dir = Path(__file__).parent.parent.parent
     token_path = str(base_dir / "cred" / "gchat_token.json")
     creds_path = str(base_dir / "cred" / "setup_cred.json")
 

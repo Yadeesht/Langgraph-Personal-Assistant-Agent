@@ -36,6 +36,25 @@ from utils.helper import setup_logger
 logger = setup_logger(__name__)
 
 
+def create_agent_tool_node(tools, messages_key: str):
+    """
+    Creates a node that runs the prebuilt ToolNode with the scoped messages key,
+    then updates BOTH the scoped messages key and the global messages key.
+    """
+    tool_node = ToolNode(tools=tools, handle_tool_errors=True, messages_key=messages_key)
+
+    async def node(state: State):
+        result = await tool_node.ainvoke(state)
+        # The result contains the newly added ToolMessages under the messages_key
+        tool_messages = result.get(messages_key, [])
+        return {
+            messages_key: tool_messages,
+            "messages": tool_messages,
+        }
+
+    return node
+
+
 def build_graph(tool_sets, checkpointer):
     supervisor_tools = tool_sets.get("supervisor", [])
     communication_tools = tool_sets.get("communication", [])
@@ -77,40 +96,45 @@ def build_graph(tool_sets, checkpointer):
     data_tools = list(data_tools) + [work_completion]
     presentation_tools = list(presentation_tools) + [work_completion]
 
+    supervisor_llm = build_llm_with_tools(supervisor_tools)
     communication_llm = build_llm_with_tools(communication_tools)
     planning_llm = build_llm_with_tools(planning_tools)
-    supervisor_llm = build_llm_with_tools(supervisor_tools)
-    code_agent_llm = build_llm()
-    document_agent_llm = build_llm_with_tools(document_tools)
-    presentation_agent_llm = build_llm_with_tools(presentation_tools)
-    data_agent_llm = build_llm_with_tools(data_tools)
+    document_llm = build_llm_with_tools(document_tools)
+    presentation_llm = build_llm_with_tools(presentation_tools)
+    data_llm = build_llm_with_tools(data_tools)
 
     communication_agent_node = agent_node_factory(
-        communication_llm, COMMUNICATION_SYSTEM_PROMPT, agent_name="communication_agent"
+        llm_with_tools=communication_llm,
+        system_prompt=COMMUNICATION_SYSTEM_PROMPT,
+        agent_name="communication_agent",
     )
+
     planning_agent_node = agent_node_factory(
-        planning_llm, PLANNING_SYSTEM_PROMPT, agent_name="planning_agent"
+        llm_with_tools=planning_llm,
+        system_prompt=PLANNING_SYSTEM_PROMPT,
+        agent_name="planning_agent",
     )
+
     code_agent_node = code_execution_factory(
-        llm=code_agent_llm,
+        llm=supervisor_llm,
         tool_sets=tool_sets,
         agent_name="code_agent",
     )
 
     document_agent_node = agent_node_factory(
-        llm_with_tools=document_agent_llm,
+        llm_with_tools=document_llm,
         system_prompt=DOCUMENT_SYSTEM_PROMPT,
         agent_name="document_agent",
     )
 
     presentation_agent_node = agent_node_factory(
-        llm_with_tools=presentation_agent_llm,
+        llm_with_tools=presentation_llm,
         system_prompt=PRESENTATION_SYSTEM_PROMPT,
         agent_name="presentation_agent",
     )
 
     data_agent_node = agent_node_factory(
-        llm_with_tools=data_agent_llm,
+        llm_with_tools=data_llm,
         system_prompt=DATA_SYSTEM_PROMPT,
         agent_name="data_agent",
     )
@@ -135,27 +159,27 @@ def build_graph(tool_sets, checkpointer):
     builder.add_node("data_agent", data_agent_node)
     builder.add_node(
         "communication_tools",
-        ToolNode(tools=communication_tools, handle_tool_errors=True),
+        create_agent_tool_node(communication_tools, "communication_messages"),
     )
     builder.add_node(
         "planning_tools",
-        ToolNode(tools=planning_tools, handle_tool_errors=True),
+        create_agent_tool_node(planning_tools, "planning_messages"),
     )
     builder.add_node(
         "supervisor_tools",
-        ToolNode(tools=supervisor_tools, handle_tool_errors=True),
+        create_agent_tool_node(supervisor_tools, "supervisor_messages"),
     )
     builder.add_node(
         "document_tools",
-        ToolNode(tools=document_tools, handle_tool_errors=True),
+        create_agent_tool_node(document_tools, "document_messages"),
     )
     builder.add_node(
         "presentation_tools",
-        ToolNode(tools=presentation_tools, handle_tool_errors=True),
+        create_agent_tool_node(presentation_tools, "presentation_messages"),
     )
     builder.add_node(
         "data_tools",
-        ToolNode(tools=data_tools, handle_tool_errors=True),
+        create_agent_tool_node(data_tools, "data_messages"),
     )
 
     builder.add_node("memory_update_node", memory_update_node)

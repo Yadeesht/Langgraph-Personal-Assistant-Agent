@@ -1,7 +1,7 @@
 """
-Google Tasks MCP Tools
+Google Tasks Tools
 
-This module provides MCP tools for interacting with Google Tasks API.
+This module provides tools for interacting with Google Tasks API.
 """
 
 import asyncio
@@ -52,7 +52,7 @@ LIST_TASKS_MAX_POSITION = "99999999999999999999"
 
 def get_service():
     """Get Gmail service using shared authentication."""
-    base_dir = Path(__file__).parent.parent
+    base_dir = Path(__file__).parent.parent.parent
     token_path = str(base_dir / "cred" / "gtask_token.json")
     creds_path = str(base_dir / "cred" / "setup_cred.json")
 

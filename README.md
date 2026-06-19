@@ -9,7 +9,7 @@
 
 <p align="center">
   <!-- <strong>AT YOUR SERVICE.</strong><br/> -->
-  Multi-Agent • LangGraph • MCP • RAG + Knowledge Graph • Voice UI
+  Multi-Agent • LangGraph • RAG + Knowledge Graph • Voice UI
 </p>
 
 <p align="center">
@@ -18,7 +18,7 @@
   <a href="https://github.com/Yadeesht/Agentic-AI-EXP/blob/main/SYSTEM.md"><img src="https://img.shields.io/badge/System-Architecture-6f42c1?style=for-the-badge" alt="System Docs"></a>
 </p>
 
-This is a personal agentic AI operating system built on a distributed **Multi-Server MCP** architecture and orchestrated with **LangGraph**. It routes tasks across specialized agents, executes code in a sandbox, and supports both text + voice interactions through Chainlit.
+This is a personal agentic AI operating system built on a distributed agent architecture and orchestrated with **LangGraph**. It routes tasks across specialized agents, executes code in a sandbox, and supports both text + voice interactions through the web interface.
 
 ---
 
@@ -61,7 +61,6 @@ This is a personal agentic AI operating system built on a distributed **Multi-Se
 <summary><strong>Optional but recommended</strong></summary>
 
 - `uv` for fast installation.
-- `honcho` for running multiple MCP servers from `Procfile needed when running in terminal.
 
 </details>
 
@@ -165,17 +164,6 @@ python main.py
 
 Use `exit`, `quit`, or `bye` to stop.
 
-### C) Start MCP servers manually (advanced)
-
-```powershell
-honcho start
-```
-
-`Procfile` starts:
-- Communication server
-- Planning server
-- Content server
-- Supervisor server
 
 ---
 
@@ -220,7 +208,7 @@ This ilt around a **stateful LangGraph** where every node is a purposeful partic
 |---|---|---|
 | `communication_agent` | `communication_tools` | Gmail, Google Chat |
 | `planning_agent` | `planning_tools` | Calendar, Google Tasks |
-| `code_agent` | Docker sandbox | Python code generation + execution |
+| `code_agent` | Sacrificial sandbox | Python code generation + execution |
 | `document_agent` | `document_tools` | Google Drive, Docs |
 | `data_agent` | `data_tools` | Google Sheets, Forms |
 | `presentation_agent` | `presentation_tools` | Google Slides |
@@ -266,7 +254,7 @@ Key runtime files:
 - `frontend/web_server.py` — FastAPI dashboard web server and static assets
 - `core/graph.py` — LangGraph orchestration
 - `config/settings.py` — model/provider/runtime configuration
-- `app_tools/core/*.py` — MCP server entrypoints
+- `tools/*.py` — Tool registration entrypoints
 - `rag/` — Episodic RAG + Knowledge Graph logic
 
 ---

@@ -17,8 +17,3 @@
 **/dummy.txt
 **/log_details.txt
 **/checkpoint_text_dump.txt
-
-# Created at runtime by setup.py and the Chainlit framework — safe to ignore.
-*.egg-info/
-.chainlit/
-**/chainlit.md

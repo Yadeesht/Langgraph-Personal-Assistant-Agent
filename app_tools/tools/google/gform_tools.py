@@ -1,7 +1,7 @@
 """
-Google Forms MCP Tools
+Google Forms Tools
 
-This module provides MCP tools for interacting with Google Forms API.
+This module provides tools for interacting with Google Forms API.
 """
 
 import asyncio
@@ -29,7 +29,7 @@ logger = setup_logger(__name__)
 
 def get_service():
     """Get Gmail service using shared authentication."""
-    base_dir = Path(__file__).parent.parent
+    base_dir = Path(__file__).parent.parent.parent
     token_path = str(base_dir / "cred" / "gform_token.json")
     creds_path = str(base_dir / "cred" / "setup_cred.json")
 

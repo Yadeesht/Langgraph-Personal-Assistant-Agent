@@ -4,16 +4,28 @@ from datetime import datetime
 
 import aiosqlite
 from langchain_core.messages import AIMessage, HumanMessage
-from langchain_mcp_adapters.client import MultiServerMCPClient
+from langchain_core.tools import StructuredTool
 
-from config.settings import (
-    CHECKPOINT_DB,
-    DEFAULT_THREAD_ID,
-    communication_config,
-    planning_config,
-    content_config,
-    supervisor_config,
+from app_tools.core.server_init import (
+    communication_server,
+    planning_server,
+    content_server,
+    supervisor_server,
 )
+
+# Import tools 
+import app_tools.tools.google.gmail_tools
+import app_tools.tools.google.calendar_tools
+import app_tools.tools.google.gdrive_tools
+import app_tools.tools.google.gslide_tools
+import app_tools.tools.google.gsheet_tools
+import app_tools.tools.google.gform_tools
+import app_tools.tools.google.gdocs_tools
+import app_tools.tools.google.gtask_tools
+import app_tools.tools.google.gsearch_tools
+import app_tools.tools.rag_tools
+
+from config.settings import CHECKPOINT_DB, DEFAULT_THREAD_ID
 from core.graph import build_graph
 from utils.helper import (
     AsyncSqliteSaver,
@@ -55,20 +67,28 @@ async def main():
     logger.info("🚀 Starting Agent")
 
     try:
-        communication_client = MultiServerMCPClient(communication_config)
-        communication_tools = await communication_client.get_tools()
+        def get_langchain_tools(server) -> list[StructuredTool]:
+            lc_tools = []
+            for t in server._tool_manager.list_tools():
+                lc_tools.append(StructuredTool.from_function(
+                    coroutine=t.fn if t.is_async else None,
+                    func=t.fn if not t.is_async else None,
+                    name=t.name,
+                    description=t.description,
+                    args_schema=t.fn_metadata.arg_model,
+                ))
+            return lc_tools
+
+        communication_tools = get_langchain_tools(communication_server)
         logger.info(f"📧 Communication Tools: {len(communication_tools)}")
 
-        planning_client = MultiServerMCPClient(planning_config)
-        planning_tools = await planning_client.get_tools()
+        planning_tools = get_langchain_tools(planning_server)
         logger.info(f"✅ Planning Tools: {len(planning_tools)}")
 
-        content_client = MultiServerMCPClient(content_config)
-        content_tools = await content_client.get_tools()
+        content_tools = get_langchain_tools(content_server)
         logger.info(f"📺 Content Tools: {len(content_tools)}")
 
-        supervisor_client = MultiServerMCPClient(supervisor_config)
-        supervisor_tools = await supervisor_client.get_tools()
+        supervisor_tools = get_langchain_tools(supervisor_server)
         logger.info(f"🔍 Supervisor Tools: {len(supervisor_tools)}")
 
         tool_sets = {

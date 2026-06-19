@@ -6,14 +6,14 @@ JARVIS is a sophisticated, multi-agent AI system designed to be a proactive and 
 
 JARVIS's architecture is designed for robustness and scalability. It is composed of several key components that work together to provide a seamless user experience.
 
-### Multi-Server MCP Client (Distributed Services)
+### Modular Tool Registry (In-Process Services)
 
-At its core, JARVIS uses a multi-server MCP (Multi-Server Command and Control Protocol) client to communicate with different services. This allows for a distributed architecture where different agents can run as separate processes or even on different servers, each with its own set of tools and capabilities. This design enhances parallelism, fault tolerance, and scalability. The current implementation includes the following services:
+At its core, JARVIS uses a modular tool registry structure to organize different services. This allows for a clean separation of concerns where different agents access distinct sets of tools, each representing a specific domain. By loading all tool sets in-process directly within the runtime, JARVIS achieves maximum execution speed and avoids the latency or reliability issues of running separate external server processes. The current implementation includes the following tool categories:
 
-*   **Communication Server**: Hosts tools and logic for all communication-related tasks.
-*   **Content Server**: Manages content and tools for Google Drive, Docs, Sheets, Slides, and Forms.
-*   **Planning Server**: Handles scheduling, reminders, tasks, and associated tools.
-*   **Supervisor Server**: The orchestrator that routes tasks and manages the overall conversation flow.
+*   **Communication Tools**: Handles Gmail and Google Chat API interactions.
+*   **Content Tools**: Manages Google Drive, Docs, Sheets, Slides, and Forms.
+*   **Planning Tools**: Handles Google Calendar and Google Tasks.
+*   **Supervisor Tools**: Manages search, RAG, and core orchestrations.
 
 ### Graph-Based Conversation Flow (LangGraph)
 
@@ -54,7 +54,7 @@ JARVIS implements advanced memory management systems for continuous learning and
 
 JARVIS is packed with a wide range of features that make it a powerful and versatile AI assistant.
 
-*   **Dynamic Code Execution (Sandboxed)**: The Code Agent can dynamically generate Python code based on user requests and execute it safely within an isolated Docker container. This allows JARVIS to perform complex data manipulations, integrate with various APIs programmatically, and automate multi-step workflows.
+*   **Dynamic Code Execution (Sandboxed)**: The Code Agent can dynamically generate Python code based on user requests and execute it safely within an isolated sacrificial sandbox process. This allows JARVIS to perform complex data manipulations, integrate with various APIs programmatically, and automate multi-step workflows.
 *   **Persistent & Contextual Memory**: Through its Episodic RAG and Knowledge Graph, JARVIS learns from every interaction, building a rich, searchable memory of past conversations, entities, and relationships. This enables highly personalized and context-aware responses.
 *   **Advanced Tool Integration**: Each agent is equipped with a specific set of tools (e.g., Google Workspace APIs). The system provides structured methods for the LLMs to understand and utilize these tools effectively.
 *   **Configurable LLM Backends**: JARVIS is designed to work with various LLM providers (OpenRouter, Groq, Hugging Face) and models, configurable via `config/settings.py`, allowing flexibility and performance tuning.
@@ -80,6 +80,6 @@ JARVIS stands apart from conventional AI assistants due to its sophisticated arc
 *   **True Multi-Agent Collaboration**: Unlike single-model chatbots, JARVIS leverages a dynamic network of specialized agents that collaborate, each excelling in its domain (communication, planning, content, code). This enables handling complex, multi-faceted requests that would overwhelm a monolithic AI.
 *   **Proactive & Context-Aware Intelligence**: Beyond merely reacting to queries, JARVIS actively learns and retains context through its Episodic RAG and Knowledge Graph. It doesn't just process current input but understands the ongoing narrative, remembers past interactions, and uses this deep memory to provide more relevant, personalized, and even proactive assistance.
 *   **Dynamic Code Generation & Secure Execution**: The ability to write and execute custom Python code within a sandboxed environment transforms JARVIS from a mere tool-caller into a powerful programmable assistant. This capability allows it to tackle bespoke automation tasks, complex data processing, and novel problem-solving on the fly, pushing the boundaries of what an AI assistant can achieve.
-*   **Robust & Scalable Architecture**: The distributed Multi-Server MCP client and LangGraph-based conversation flow provide a highly resilient and scalable foundation. This architecture allows for seamless integration of new agents, tools, and LLM providers, ensuring JARVIS can continuously evolve and adapt to new demands without requiring a complete overhaul.
+*   **Robust & Scalable Architecture**: The modular tool registry and LangGraph-based conversation flow provide a highly resilient and scalable foundation. This architecture allows for seamless integration of new agents, tools, and LLM providers, ensuring JARVIS can continuously evolve and adapt to new demands without requiring a complete overhaul.
 
 JARVIS represents a significant leap forward in AI assistance, offering a powerful, flexible, and intelligent system that can revolutionize the way we interact with technology.

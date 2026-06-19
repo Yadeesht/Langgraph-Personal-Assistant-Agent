@@ -1,7 +1,7 @@
 """
-Google Slides MCP Tools
+Google Slides Tools
 
-This module provides MCP tools for interacting with Google Slides API.
+This module provides tools for interacting with Google Slides API.
 """
 
 import asyncio
@@ -10,7 +10,7 @@ from pathlib import Path
 
 from app_tools.auth.service_decoder import get_google_service
 from app_tools.core.server_init import content_server
-from app_tools.tools.workspace_comment_base import create_comment_tools
+from app_tools.tools.google.workspace_comment_base import create_comment_tools
 from app_tools.helper.pydantic_models import (
     CreatePresentationRequest,
     CreatePresentationResponse,
@@ -30,7 +30,7 @@ logger = setup_logger(__name__)
 
 def get_service():
     """Get Gmail service using shared authentication."""
-    base_dir = Path(__file__).parent.parent
+    base_dir = Path(__file__).parent.parent.parent
     token_path = str(base_dir / "cred" / "gslide_token.json")
     creds_path = str(base_dir / "cred" / "setup_cred.json")
 

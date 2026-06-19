@@ -25,7 +25,7 @@ class State(TypedDict):
     data_messages: Annotated[list, add_messages]
     code_messages: Annotated[list, add_messages]
     summary: Optional[str]
-    last_memory_timestamp: Optional[float] = 1770195927.8211298  # random time
+    last_memory_timestamp: Optional[float] 
     next: Optional[str]
     current_agent: Optional[str]
 

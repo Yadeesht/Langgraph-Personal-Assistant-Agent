@@ -8,7 +8,7 @@ from urllib.request import url2pathname
 
 import httpx
 from app_tools.auth.service_decoder import get_google_service
-from app_tools.auth.oauth_config import is_stateless_mode
+
 from app_tools.core.server_init import content_server
 from app_tools.helper.utils import extract_office_xml_text
 from app_tools.helper.pydantic_models import (
@@ -40,7 +40,7 @@ UPLOAD_CHUNK_SIZE_BYTES = 5 * 1024 * 1024  # 5 MB (Google recommended minimum)
 # Auth
 def get_service():
     """Get Gmail service using shared auth"""
-    base_dir = Path(__file__).parent.parent
+    base_dir = Path(__file__).parent.parent.parent
     token_path = str(base_dir / "cred" / "gdrive_token.json")
     creds_path = str(base_dir / "cred" / "setup_cred.json")
 
@@ -232,9 +232,9 @@ async def resolve_folder_id(
 
 
 """
-Google Drive MCP Tools
+Google Drive Tools
 
-This module provides MCP tools for interacting with Google Drive API.
+This module provides tools for interacting with Google Drive API.
 """
 
 
@@ -592,12 +592,6 @@ async def create_drive_file(
 
         # Handle file:// URLs
         if parsed_url.scheme == "file":
-            if is_stateless_mode():
-                raise Exception(
-                    "❌ file:// URLs are not supported in stateless mode (Docker/serverless). "
-                    "Use HTTP/HTTPS URLs or provide content directly via the 'content' parameter."
-                )
-
             logger.info("[create_drive_file] Reading from local filesystem")
 
             # Convert file:// URL to local path
