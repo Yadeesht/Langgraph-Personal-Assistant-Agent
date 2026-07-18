@@ -45,8 +45,22 @@ def create_agent_tool_node(tools, messages_key: str):
 
     async def node(state: State):
         result = await tool_node.ainvoke(state)
-        # The result contains the newly added ToolMessages under the messages_key
-        tool_messages = result.get(messages_key, [])
+        
+        from langgraph.types import Command
+        if isinstance(result, Command):
+            return result
+        if isinstance(result, list):
+            for item in result:
+                if isinstance(item, Command):
+                    return item
+
+        # The result contains the newly added ToolMessages under the messages_key, or is a list of messages directly
+        if isinstance(result, list):
+            tool_messages = result
+        elif isinstance(result, dict):
+            tool_messages = result.get(messages_key, [])
+        else:
+            tool_messages = []
         return {
             messages_key: tool_messages,
             "messages": tool_messages,
