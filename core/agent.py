@@ -780,7 +780,7 @@ def route_to_agent(
     """
     Route the conversation to the correct specialized agent.
 
-    The supervisor's ONLY job is to route — do not attempt to perform complex actions
+    The supervisor's job is route when request is based on this agents domain else they can respond directly— do not attempt to perform complex actions
     yourself. The moment you identify the user's intent, route immediately.
 
     AGENT DOMAINS:

@@ -44,5 +44,3 @@ TOKEN_STRATEGY = "last"
 
 # Default thread for terminal-based sessions
 DEFAULT_THREAD_ID = os.getenv("DEFAULT_THREAD_ID", "default_thread")
-
-

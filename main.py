@@ -68,16 +68,7 @@ async def main():
 
     try:
         def get_langchain_tools(server) -> list[StructuredTool]:
-            lc_tools = []
-            for t in server._tool_manager.list_tools():
-                lc_tools.append(StructuredTool.from_function(
-                    coroutine=t.fn if t.is_async else None,
-                    func=t.fn if not t.is_async else None,
-                    name=t.name,
-                    description=t.description,
-                    args_schema=t.fn_metadata.arg_model,
-                ))
-            return lc_tools
+            return server.list_tools()
 
         communication_tools = get_langchain_tools(communication_server)
         logger.info(f"📧 Communication Tools: {len(communication_tools)}")
@@ -102,12 +93,12 @@ async def main():
             checkpointer = AsyncSqliteSaver(connection)
             graph = build_graph(tool_sets, checkpointer)
 
-            # g = graph.get_graph()
+            g = graph.get_graph()
 
-            # png_bytes = g.draw_mermaid_png()
+            png_bytes = g.draw_mermaid_png()
 
-            # with open("docs/images/agent_structure_graph.png", "wb") as f:
-            #     f.write(png_bytes)
+            with open("docs/images/agent_structure_graph.png", "wb") as f:
+                f.write(png_bytes)
 
             config = {
                 "configurable": {
